@@ -1,0 +1,74 @@
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/dell-manager/backend/api"
+	"github.com/dell-manager/backend/config"
+	"github.com/dell-manager/backend/crypto"
+	"github.com/dell-manager/backend/database"
+	"github.com/dell-manager/backend/worker"
+)
+
+func main() {
+	cfg := config.Load()
+
+	// Initialize encryption key
+	keyEnv := cfg.Security.MasterKeyEnv
+	if keyEnv == "" {
+		keyEnv = "MASTER_KEY"
+	}
+	if err := crypto.Init(cfg.Security.MasterKeyPath, keyEnv); err != nil {
+		log.Fatalf("crypto init: %v", err)
+	}
+
+	// Open database
+	db, err := database.Open(cfg.Database.Path)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
+	defer db.Close()
+
+	// WebSocket hub
+	hub := api.NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.Run(ctx)
+
+	// Background workers
+	pool := worker.New(db, hub, cfg)
+	go pool.Run(ctx)
+
+	// HTTP router
+	router := api.NewRouter(db, hub, cfg)
+
+	srv := &http.Server{
+		Addr:    cfg.Server.Host + ":" + cfg.Server.Port,
+		Handler: router,
+	}
+
+	go func() {
+		log.Printf("dell-manager listening on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	cancel()
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutCancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
+	log.Println("dell-manager stopped")
+}
