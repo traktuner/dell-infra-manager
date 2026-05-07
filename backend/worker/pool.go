@@ -37,6 +37,7 @@ func (p *Pool) Run(ctx context.Context) {
 type serverWorkerState struct {
 	cancel    context.CancelFunc
 	updatedAt time.Time
+	alive     chan struct{} // closed when the worker goroutine exits
 }
 
 func (p *Pool) serverWatcher(ctx context.Context) {
@@ -46,31 +47,57 @@ func (p *Pool) serverWatcher(ctx context.Context) {
 
 	start := func(s models.Server) {
 		sCtx, cancel := context.WithCancel(ctx)
-		running[s.ID] = &serverWorkerState{cancel: cancel, updatedAt: s.UpdatedAt}
-		go p.serverWorker(sCtx, s)
+		alive := make(chan struct{})
+		running[s.ID] = &serverWorkerState{cancel: cancel, updatedAt: s.UpdatedAt, alive: alive}
+		go func() {
+			defer close(alive)
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("poller[%s] PANIC: %v — worker died, will be restarted on next scan", s.Name, r)
+				}
+			}()
+			p.serverWorker(sCtx, s)
+		}()
+	}
+
+	isDead := func(s *serverWorkerState) bool {
+		select {
+		case <-s.alive:
+			return true
+		default:
+			return false
+		}
 	}
 
 	scan := func() {
 		var servers []models.Server
 		if err := p.db.Select(&servers, `SELECT * FROM servers`); err != nil {
+			log.Printf("serverWatcher: db error: %v", err)
 			return
 		}
+		log.Printf("serverWatcher: scanned %d server(s)", len(servers))
 		active := make(map[string]bool)
 		for _, s := range servers {
 			active[s.ID] = true
 			existing, ok := running[s.ID]
 			switch {
 			case !ok:
+				log.Printf("poller[%s] starting worker (id=%s)", s.Name, s.ID)
+				start(s)
+			case isDead(existing):
+				log.Printf("poller[%s] previous worker exited, restarting", s.Name)
+				delete(running, s.ID)
 				start(s)
 			case !existing.updatedAt.Equal(s.UpdatedAt):
-				// Server was edited (new credentials, hostname, etc.) — restart its worker
 				log.Printf("poller[%s] config changed, restarting worker", s.Name)
 				existing.cancel()
+				<-existing.alive // wait for old worker to fully exit before starting new one
 				start(s)
 			}
 		}
 		for id, state := range running {
 			if !active[id] {
+				log.Printf("poller: server %s removed, stopping worker", id)
 				state.cancel()
 				delete(running, id)
 			}
@@ -161,69 +188,101 @@ func (p *Pool) serverWorker(ctx context.Context, s models.Server) {
 	}
 }
 
+// safePoll wraps a poll func with panic recovery so a bad payload from one server
+// doesn't kill the worker goroutine.
+func (p *Pool) safePoll(name, kind string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("poller[%s] %s PANIC: %v", name, kind, r)
+		}
+	}()
+	fn()
+}
+
 func (p *Pool) pollSystem(client *redfish.Client, serverID, name string) {
-	sys, err := client.GetSystem()
-	if err != nil {
-		p.setStatus(serverID, "offline")
-		p.hub.Emit("server_status", serverID, map[string]string{"status": "offline"})
-		log.Printf("poller[%s] system error: %v", name, err)
-		return
-	}
-	data, _ := json.Marshal(sys)
-	p.db.Exec(`UPDATE server_cache SET system_json=?, last_seen=?, status='online' WHERE server_id=?`,
-		string(data), time.Now(), serverID)
-	p.hub.Emit("server_status", serverID, map[string]string{"status": "online", "power_state": sys.PowerState})
-	p.hub.Emit("power_state", serverID, map[string]string{"state": sys.PowerState})
+	p.safePoll(name, "system", func() {
+		sys, err := client.GetSystem()
+		if err != nil {
+			p.setStatus(serverID, "offline")
+			p.hub.Emit("server_status", serverID, map[string]string{"status": "offline"})
+			log.Printf("poller[%s] system error: %v", name, err)
+			return
+		}
+		data, _ := json.Marshal(sys)
+		res, dbErr := p.db.Exec(`UPDATE server_cache SET system_json=?, last_seen=?, status='online' WHERE server_id=?`,
+			string(data), time.Now(), serverID)
+		if dbErr != nil {
+			log.Printf("poller[%s] system db error: %v", name, dbErr)
+			return
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			// cache row missing — recreate it so next poll succeeds
+			log.Printf("poller[%s] system: no cache row, inserting", name)
+			p.db.Exec(`INSERT OR IGNORE INTO server_cache (server_id, status) VALUES (?, 'online')`, serverID)
+			p.db.Exec(`UPDATE server_cache SET system_json=?, last_seen=?, status='online' WHERE server_id=?`,
+				string(data), time.Now(), serverID)
+		}
+		log.Printf("poller[%s] system OK: %s / %s / %s", name, sys.Model, sys.SerialNumber, sys.PowerState)
+		p.hub.Emit("server_status", serverID, map[string]string{"status": "online", "power_state": sys.PowerState})
+		p.hub.Emit("power_state", serverID, map[string]string{"state": sys.PowerState})
+	})
 }
 
 func (p *Pool) pollThermal(client *redfish.Client, serverID, name string) {
-	t, err := client.GetThermal()
-	if err != nil {
-		log.Printf("poller[%s] thermal error: %v", name, err)
-		return
-	}
-	data, _ := json.Marshal(t)
-	p.db.Exec(`UPDATE server_cache SET thermal_json=? WHERE server_id=?`, string(data), serverID)
-
-	// Find inlet temp for WS event
-	inletTemp := 0.0
-	for _, ts := range t.Temperatures {
-		if ts.Name == "Inlet Temp" {
-			inletTemp = ts.ReadingCelsius
-			break
+	p.safePoll(name, "thermal", func() {
+		t, err := client.GetThermal()
+		if err != nil {
+			log.Printf("poller[%s] thermal error: %v", name, err)
+			return
 		}
-	}
-	p.hub.Emit("thermal_update", serverID, map[string]float64{"inlet_temp": inletTemp})
+		data, _ := json.Marshal(t)
+		p.db.Exec(`UPDATE server_cache SET thermal_json=? WHERE server_id=?`, string(data), serverID)
+
+		inletTemp := 0.0
+		for _, ts := range t.Temperatures {
+			if ts.Name == "Inlet Temp" {
+				inletTemp = ts.ReadingCelsius
+				break
+			}
+		}
+		p.hub.Emit("thermal_update", serverID, map[string]float64{"inlet_temp": inletTemp})
+	})
 }
 
 func (p *Pool) pollPower(client *redfish.Client, serverID, name string) {
-	pw, err := client.GetPower()
-	if err != nil {
-		log.Printf("poller[%s] power error: %v", name, err)
-		return
-	}
-	data, _ := json.Marshal(pw)
-	p.db.Exec(`UPDATE server_cache SET power_json=? WHERE server_id=?`, string(data), serverID)
+	p.safePoll(name, "power", func() {
+		pw, err := client.GetPower()
+		if err != nil {
+			log.Printf("poller[%s] power error: %v", name, err)
+			return
+		}
+		data, _ := json.Marshal(pw)
+		p.db.Exec(`UPDATE server_cache SET power_json=? WHERE server_id=?`, string(data), serverID)
+	})
 }
 
 func (p *Pool) pollFirmware(client *redfish.Client, serverID, name string) {
-	fw, err := client.GetFirmwareInventory()
-	if err != nil {
-		log.Printf("poller[%s] firmware error: %v", name, err)
-		return
-	}
-	data, _ := json.Marshal(fw)
-	p.db.Exec(`UPDATE server_cache SET firmware_json=? WHERE server_id=?`, string(data), serverID)
+	p.safePoll(name, "firmware", func() {
+		fw, err := client.GetFirmwareInventory()
+		if err != nil {
+			log.Printf("poller[%s] firmware error: %v", name, err)
+			return
+		}
+		data, _ := json.Marshal(fw)
+		p.db.Exec(`UPDATE server_cache SET firmware_json=? WHERE server_id=?`, string(data), serverID)
+	})
 }
 
 func (p *Pool) pollStorage(client *redfish.Client, serverID, name string) {
-	st, err := client.GetStorage()
-	if err != nil {
-		log.Printf("poller[%s] storage error: %v", name, err)
-		return
-	}
-	data, _ := json.Marshal(st)
-	p.db.Exec(`UPDATE server_cache SET storage_json=? WHERE server_id=?`, string(data), serverID)
+	p.safePoll(name, "storage", func() {
+		st, err := client.GetStorage()
+		if err != nil {
+			log.Printf("poller[%s] storage error: %v", name, err)
+			return
+		}
+		data, _ := json.Marshal(st)
+		p.db.Exec(`UPDATE server_cache SET storage_json=? WHERE server_id=?`, string(data), serverID)
+	})
 }
 
 func (p *Pool) checkJobs(client *redfish.Client, serverID string) {
