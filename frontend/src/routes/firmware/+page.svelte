@@ -1,30 +1,26 @@
 <script lang="ts">
 	import type { Server, FirmwareComponent, AvailableUpdate } from '$lib/types';
 	import { api } from '$lib/api';
+	import FirmwareTable from '$lib/components/FirmwareTable.svelte';
 	import { onMount } from 'svelte';
-	import { ArrowUpCircle, RefreshCw } from '@lucide/svelte';
+	import {
+		ChevronDown, ChevronRight, RefreshCw, ArrowUpCircle,
+		Check, AlertCircle, Server as ServerIcon
+	} from '@lucide/svelte';
 
 	let servers = $state<Server[]>([]);
 	let inventories = $state<Map<string, FirmwareComponent[]>>(new Map());
 	let updates = $state<Map<string, AvailableUpdate[]>>(new Map());
 	let loading = $state(true);
 	let checking = $state(false);
-
-	// All unique component names across all servers
-	const allComponents = $derived(() => {
-		const names = new Set<string>();
-		for (const comps of inventories.values()) {
-			comps.forEach((c) => names.add(c.Name));
-		}
-		return [...names].sort();
-	});
+	let expanded = $state<Set<string>>(new Set());
+	let bulking = $state(false);
+	let bulkError = $state('');
 
 	async function load() {
 		loading = true;
 		servers = await api.servers.list();
-		const results = await Promise.allSettled(
-			servers.map((s) => api.cache.firmware(s.id))
-		);
+		const results = await Promise.allSettled(servers.map((s) => api.cache.firmware(s.id)));
 		const inv = new Map<string, FirmwareComponent[]>();
 		results.forEach((r, i) => {
 			if (r.status === 'fulfilled') inv.set(servers[i].id, r.value);
@@ -35,9 +31,8 @@
 
 	async function checkAllUpdates() {
 		checking = true;
-		const results = await Promise.allSettled(
-			servers.map((s) => api.firmware.available(s.id))
-		);
+		bulkError = '';
+		const results = await Promise.allSettled(servers.map((s) => api.firmware.available(s.id)));
 		const upd = new Map<string, AvailableUpdate[]>();
 		results.forEach((r, i) => {
 			if (r.status === 'fulfilled') upd.set(servers[i].id, r.value);
@@ -46,40 +41,100 @@
 		checking = false;
 	}
 
-	onMount(load);
-
-	function getVersion(serverId: string, component: string) {
-		return inventories.get(serverId)?.find((c) => c.Name === component)?.Version ?? '—';
+	function toggle(serverId: string) {
+		const next = new Set(expanded);
+		if (next.has(serverId)) next.delete(serverId);
+		else next.add(serverId);
+		expanded = next;
 	}
 
-	function getUpdate(serverId: string, component: string) {
-		return updates.get(serverId)?.find((u) => u.component === component);
+	function expandAll() {
+		expanded = new Set(servers.filter((s) => (updates.get(s.id)?.length ?? 0) > 0).map((s) => s.id));
 	}
 
-	async function bulkUpdateComponent(component: string) {
-		const serverIds = servers.filter((s) => {
-			const upd = getUpdate(s.id, component);
-			return !!upd;
-		}).map((s) => s.id);
+	function collapseAll() {
+		expanded = new Set();
+	}
 
-		if (serverIds.length === 0) return;
-		const upd = getUpdate(serverIds[0], component)!;
+	const totalOutdated = $derived(
+		[...updates.values()].reduce((acc, list) => acc + list.length, 0)
+	);
+
+	const serversWithUpdates = $derived(servers.filter((s) => (updates.get(s.id)?.length ?? 0) > 0));
+
+	// All unique components that have updates available across the fleet,
+	// grouped so we can offer "Update <component> on all servers" bulk actions.
+	const componentsWithUpdates = $derived.by(() => {
+		const map = new Map<string, { servers: Server[]; available_version: string; catalog_path: string }>();
+		for (const s of servers) {
+			for (const u of updates.get(s.id) ?? []) {
+				const e = map.get(u.component);
+				if (e) {
+					e.servers.push(s);
+				} else {
+					map.set(u.component, {
+						servers: [s],
+						available_version: u.available_version,
+						catalog_path: u.catalog_path
+					});
+				}
+			}
+		}
+		return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+	});
+
+	async function bulkUpdateComponent(component: string, catalogPath: string, serverIds: string[]) {
+		if (!confirm(`Queue ${component} update on ${serverIds.length} server(s)?`)) return;
+		bulking = true;
+		bulkError = '';
 		try {
-			await api.firmware.bulkUpdate(serverIds, component, upd.catalog_path);
-			alert(`Queued ${component} update for ${serverIds.length} server(s)`);
+			await api.firmware.bulkUpdate(serverIds, component, catalogPath);
 		} catch (e) {
-			alert((e as Error).message);
+			bulkError = (e as Error).message;
+		} finally {
+			bulking = false;
 		}
 	}
+
+	function refreshServer(serverId: string) {
+		// re-fetch inventory and updates for one server (e.g. after queueing an update)
+		Promise.all([api.cache.firmware(serverId), api.firmware.available(serverId)]).then(
+			([inv, upd]) => {
+				inventories = new Map(inventories).set(serverId, inv);
+				updates = new Map(updates).set(serverId, upd);
+			}
+		);
+	}
+
+	onMount(load);
 </script>
 
 <div class="space-y-6">
 	<div class="flex items-center justify-between">
-		<h1 class="text-xl font-semibold text-zinc-100">Firmware Overview</h1>
+		<div>
+			<h1 class="text-xl font-semibold text-zinc-100">Firmware</h1>
+			{#if !loading && updates.size > 0}
+				<div class="text-sm text-zinc-500 mt-0.5">
+					{#if totalOutdated === 0}
+						<span class="text-emerald-500">All servers up to date</span>
+					{:else}
+						<span class="text-amber-400">{totalOutdated}</span> outdated component{totalOutdated > 1 ? 's' : ''}
+						across <span class="text-zinc-300">{serversWithUpdates.length}</span> server{serversWithUpdates.length > 1 ? 's' : ''}
+					{/if}
+				</div>
+			{/if}
+		</div>
 		<div class="flex gap-2">
-			<button onclick={load} class="px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700">
-				Refresh
-			</button>
+			<button
+				onclick={collapseAll}
+				disabled={expanded.size === 0}
+				class="px-3 py-1.5 text-sm rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
+			>Collapse all</button>
+			<button
+				onclick={expandAll}
+				disabled={serversWithUpdates.length === 0}
+				class="px-3 py-1.5 text-sm rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
+			>Expand outdated</button>
 			<button
 				onclick={checkAllUpdates}
 				disabled={checking}
@@ -91,59 +146,102 @@
 		</div>
 	</div>
 
+	{#if bulkError}
+		<div class="flex items-center gap-2 text-red-400 bg-red-500/10 rounded-xl px-4 py-3 text-sm">
+			<AlertCircle class="w-4 h-4" /> {bulkError}
+		</div>
+	{/if}
+
+	<!-- Cross-server bulk update bar — only when there's something to do -->
+	{#if componentsWithUpdates.length > 0}
+		<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+			<h3 class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-3">
+				Bulk update across fleet
+			</h3>
+			<div class="flex flex-wrap gap-2">
+				{#each componentsWithUpdates as [component, info]}
+					<button
+						onclick={() => bulkUpdateComponent(component, info.catalog_path, info.servers.map((s) => s.id))}
+						disabled={bulking}
+						class="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-blue-600/10 border border-blue-500/20
+							text-blue-300 hover:bg-blue-600/20 disabled:opacity-50"
+					>
+						<ArrowUpCircle class="w-3.5 h-3.5" />
+						<span class="font-medium">{component}</span>
+						<span class="text-blue-400/60 font-mono">→ {info.available_version}</span>
+						<span class="text-zinc-500">on {info.servers.length} server{info.servers.length > 1 ? 's' : ''}</span>
+					</button>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
 	{#if loading}
 		<div class="text-zinc-500 text-sm">Loading firmware data...</div>
+	{:else if servers.length === 0}
+		<div class="text-zinc-600 text-sm py-12 text-center">
+			No servers configured. Add one on the <a href="/servers" class="text-blue-400 hover:underline">Servers</a> page.
+		</div>
 	{:else}
-		<div class="overflow-x-auto">
-			<table class="w-full text-sm border border-zinc-800 rounded-xl overflow-hidden">
-				<thead>
-					<tr class="bg-zinc-900 border-b border-zinc-800">
-						<th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">Component</th>
-						{#each servers as server}
-							<th class="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wide">
-								<a href="/servers/{server.id}" class="hover:text-zinc-300">{server.name}</a>
-							</th>
-						{/each}
-						<th class="px-4 py-3"></th>
-					</tr>
-				</thead>
-				<tbody class="divide-y divide-zinc-800 bg-zinc-900">
-					{#each allComponents() as component}
-						{@const hasUpdate = servers.some((s) => !!getUpdate(s.id, component))}
-						<tr class="{hasUpdate ? 'bg-amber-500/5' : ''}">
-							<td class="px-4 py-3 font-medium text-zinc-300">{component}</td>
-							{#each servers as server}
-								{@const upd = getUpdate(server.id, component)}
-								{@const ver = getVersion(server.id, component)}
-								<td class="px-4 py-3">
-									{#if ver === '—'}
-										<span class="text-zinc-700 text-xs">N/A</span>
-									{:else if upd}
-										<div class="text-xs">
-											<div class="text-zinc-400 font-mono">{ver}</div>
-											<div class="text-amber-400 font-mono">→ {upd.available_version}</div>
-										</div>
-									{:else}
-										<span class="text-zinc-400 font-mono text-xs">{ver}</span>
-									{/if}
-								</td>
-							{/each}
-							<td class="px-4 py-3">
-								{#if hasUpdate}
-									<button
-										onclick={() => bulkUpdateComponent(component)}
-										class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-blue-600/20
-											text-blue-400 hover:bg-blue-600/30 whitespace-nowrap"
-									>
-										<ArrowUpCircle class="w-3.5 h-3.5" />
-										Update All
-									</button>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+		<div class="space-y-2">
+			{#each servers as server}
+				{@const components = inventories.get(server.id) ?? []}
+				{@const serverUpdates = updates.get(server.id) ?? []}
+				{@const updateCount = serverUpdates.length}
+				{@const isOpen = expanded.has(server.id)}
+				{@const checked = updates.has(server.id)}
+
+				<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+					<button
+						onclick={() => toggle(server.id)}
+						class="w-full flex items-center justify-between px-5 py-3.5 hover:bg-zinc-800/50 transition-colors"
+					>
+						<div class="flex items-center gap-3">
+							{#if isOpen}
+								<ChevronDown class="w-4 h-4 text-zinc-500" />
+							{:else}
+								<ChevronRight class="w-4 h-4 text-zinc-500" />
+							{/if}
+							<ServerIcon class="w-4 h-4 text-zinc-500" />
+							<div class="text-left">
+								<div class="text-sm font-medium text-zinc-200">{server.name}</div>
+								<div class="text-xs text-zinc-600">{server.hostname} · {components.length} components</div>
+							</div>
+						</div>
+						<div class="flex items-center gap-3">
+							{#if !checked}
+								<span class="text-xs text-zinc-600">Run "Check All Updates" to see status</span>
+							{:else if updateCount === 0}
+								<span class="flex items-center gap-1.5 text-xs text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-full">
+									<Check class="w-3.5 h-3.5" /> Up to date
+								</span>
+							{:else}
+								<span class="text-xs text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-full font-medium">
+									{updateCount} update{updateCount > 1 ? 's' : ''} available
+								</span>
+							{/if}
+						</div>
+					</button>
+
+					{#if isOpen}
+						<div class="border-t border-zinc-800 px-5 py-4">
+							{#if components.length === 0}
+								<div class="text-zinc-600 text-sm py-4 text-center">
+									No firmware inventory yet. The poller fetches firmware once per startup
+									and every 6 hours after that.
+								</div>
+							{:else}
+								<FirmwareTable
+									serverId={server.id}
+									{components}
+									updates={serverUpdates}
+									onupdate={() => refreshServer(server.id)}
+								/>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/each}
 		</div>
 	{/if}
 </div>

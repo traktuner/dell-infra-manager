@@ -102,6 +102,17 @@ export interface Job {
 	finished_at: string | null;
 }
 
+// Live job from iDRAC's own job queue (not our DB).
+export interface IDRACJob {
+	Id: string;
+	Name: string;
+	JobState: string;
+	PercentComplete: number;
+	Message: string;
+	StartTime: string;
+	EndTime: string;
+}
+
 export interface StorageController {
 	Id: string;
 	Name: string;
@@ -146,6 +157,9 @@ export interface BiosRegistryEntry {
 	Value?: { ValueName: string }[];
 	LowerBound?: number;
 	UpperBound?: number;
+	// Set client-side after fetching the registry, not part of the wire format:
+	current_value?: unknown;
+	AllowedValues?: (string | number)[];
 }
 
 export interface VirtualMedia {

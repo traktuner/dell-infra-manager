@@ -167,6 +167,25 @@ func (h *ServerHandler) TestConnection(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// TestCredentials accepts credentials in the request body and tests them
+// without persisting anything to the database.
+func (h *ServerHandler) TestCredentials(c *gin.Context) {
+	var req models.AddServerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Port == 0 {
+		req.Port = 443
+	}
+	client := redfish.NewClient(req.Hostname, req.Port, req.Username, req.Password, req.TLSVerify)
+	if err := client.Ping(); err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (h *ServerHandler) GetSummary(c *gin.Context) {
 	id := c.Param("id")
 	var cache models.ServerCache

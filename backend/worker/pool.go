@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/dell-infra-manager/backend/api"
@@ -34,13 +35,49 @@ func (p *Pool) Run(ctx context.Context) {
 }
 
 type serverWorkerState struct {
-	cancel context.CancelFunc
+	cancel    context.CancelFunc
+	updatedAt time.Time
 }
 
 func (p *Pool) serverWatcher(ctx context.Context) {
 	running := make(map[string]*serverWorkerState)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+
+	start := func(s models.Server) {
+		sCtx, cancel := context.WithCancel(ctx)
+		running[s.ID] = &serverWorkerState{cancel: cancel, updatedAt: s.UpdatedAt}
+		go p.serverWorker(sCtx, s)
+	}
+
+	scan := func() {
+		var servers []models.Server
+		if err := p.db.Select(&servers, `SELECT * FROM servers`); err != nil {
+			return
+		}
+		active := make(map[string]bool)
+		for _, s := range servers {
+			active[s.ID] = true
+			existing, ok := running[s.ID]
+			switch {
+			case !ok:
+				start(s)
+			case !existing.updatedAt.Equal(s.UpdatedAt):
+				// Server was edited (new credentials, hostname, etc.) — restart its worker
+				log.Printf("poller[%s] config changed, restarting worker", s.Name)
+				existing.cancel()
+				start(s)
+			}
+		}
+		for id, state := range running {
+			if !active[id] {
+				state.cancel()
+				delete(running, id)
+			}
+		}
+	}
+
+	scan() // immediate first scan so existing servers start polling at boot
 
 	for {
 		select {
@@ -50,27 +87,7 @@ func (p *Pool) serverWatcher(ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
-			var servers []models.Server
-			if err := p.db.Select(&servers, `SELECT * FROM servers`); err != nil {
-				continue
-			}
-			// Start workers for new servers
-			active := make(map[string]bool)
-			for _, s := range servers {
-				active[s.ID] = true
-				if _, ok := running[s.ID]; !ok {
-					sCtx, cancel := context.WithCancel(ctx)
-					running[s.ID] = &serverWorkerState{cancel: cancel}
-					go p.serverWorker(sCtx, s)
-				}
-			}
-			// Cancel workers for deleted servers
-			for id, state := range running {
-				if !active[id] {
-					state.cancel()
-					delete(running, id)
-				}
-			}
+			scan()
 		}
 	}
 }
@@ -104,10 +121,21 @@ func (p *Pool) serverWorker(ctx context.Context, s models.Server) {
 		firmwareTicker.Stop(); storageTicker.Stop(); jobTicker.Stop()
 	}()
 
-	// Initial poll
-	p.pollSystem(client, s.ID, s.Name)
-	p.pollThermal(client, s.ID, s.Name)
-	p.pollPower(client, s.ID, s.Name)
+	// Initial poll — fetch everything once at startup so the UI has data immediately,
+	// without waiting for the storage (10 min) or firmware (6h) tickers. All polls run
+	// in parallel so a single slow iDRAC doesn't delay the others.
+	var wg sync.WaitGroup
+	pollers := []func(*redfish.Client, string, string){
+		p.pollSystem, p.pollThermal, p.pollPower, p.pollStorage, p.pollFirmware,
+	}
+	for _, fn := range pollers {
+		wg.Add(1)
+		go func(f func(*redfish.Client, string, string)) {
+			defer wg.Done()
+			f(client, s.ID, s.Name)
+		}(fn)
+	}
+	wg.Wait()
 
 	for {
 		select {

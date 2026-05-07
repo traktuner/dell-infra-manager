@@ -7,12 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/models"
 	"github.com/dell-infra-manager/backend/redfish"
-	"github.com/jmoiron/sqlx"
 )
 
 const dellDownloadBase = "https://downloads.dell.com/"
@@ -156,6 +156,14 @@ func (p *Pool) catalogUpdater(ctx context.Context) {
 }
 
 func (p *Pool) maybeDownloadCatalog() {
+	// Skip download if we have a cached copy younger than 24 hours.
+	if info, err := os.Stat(p.cfg.Dell.CachePath); err == nil {
+		age := time.Since(info.ModTime())
+		if age < 24*time.Hour {
+			log.Printf("catalog: using cached copy (age %v)", age.Round(time.Minute))
+			return
+		}
+	}
 	log.Println("catalog: downloading...")
 	if err := redfish.DownloadCatalog(p.cfg.Dell.CatalogURL, p.cfg.Dell.CachePath); err != nil {
 		log.Printf("catalog: download failed: %v", err)
@@ -164,14 +172,3 @@ func (p *Pool) maybeDownloadCatalog() {
 	log.Println("catalog: download complete")
 }
 
-func (p *Pool) buildClientFromDB(db *sqlx.DB, serverID string) (*redfish.Client, error) {
-	var s models.Server
-	if err := db.Get(&s, `SELECT * FROM servers WHERE id = ?`, serverID); err != nil {
-		return nil, err
-	}
-	pw, err := crypto.Decrypt(s.Password)
-	if err != nil {
-		return nil, err
-	}
-	return redfish.NewClient(s.Hostname, s.Port, s.Username, pw, s.TLSVerify), nil
-}

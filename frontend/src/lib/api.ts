@@ -7,6 +7,7 @@ import type {
 	FirmwareComponent,
 	AvailableUpdate,
 	Job,
+	IDRACJob,
 	StorageDetail,
 	BiosAttributes,
 	BiosRegistryEntry,
@@ -39,6 +40,10 @@ export const api = {
 		create: (data: unknown) => request<Server>('POST', '/servers', data),
 		update: (id: string, data: unknown) => request<Server>('PUT', `/servers/${id}`, data),
 		delete: (id: string) => request<void>('DELETE', `/servers/${id}`),
+		// Stateless: tests credentials in body, nothing persisted to DB.
+		testCredentials: (data: unknown) =>
+			request<{ ok: boolean; error?: string }>('POST', '/servers/test', data),
+		// For an existing server: tests with stored credentials.
 		test: (id: string) => request<{ ok: boolean; error?: string }>('POST', `/servers/${id}/test`)
 	},
 	cache: {
@@ -94,6 +99,7 @@ export const api = {
 	jobs: {
 		all: () => request<Job[]>('GET', '/jobs'),
 		forServer: (id: string) => request<Job[]>('GET', `/servers/${id}/jobs`),
+		idrac: (id: string) => request<IDRACJob[]>('GET', `/servers/${id}/jobs/idrac`),
 		delete: (serverId: string, jobId: string) =>
 			request<void>('DELETE', `/servers/${serverId}/jobs/${jobId}`),
 		clearAll: (serverId: string) => request<{ ok: boolean }>('DELETE', `/servers/${serverId}/jobs`)

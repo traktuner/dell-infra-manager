@@ -8,6 +8,7 @@
 	let servers = $state<Server[]>([]);
 	let loading = $state(true);
 	let showForm = $state(false);
+	let editingId = $state<string | null>(null);
 	let testing = $state(false);
 	let testResult = $state<{ ok: boolean; error?: string } | null>(null);
 	let saving = $state(false);
@@ -28,11 +29,40 @@
 
 	onMount(load);
 
+	function openCreate() {
+		editingId = null;
+		resetForm();
+		showForm = true;
+	}
+
+	function openEdit(s: Server) {
+		editingId = s.id;
+		form = {
+			name: s.name,
+			hostname: s.hostname,
+			port: s.port,
+			username: s.username,
+			password: '', // empty = keep existing
+			tls_verify: s.tls_verify,
+			tags: s.tags || '[]'
+		};
+		testResult = null;
+		showForm = true;
+	}
+
 	async function save() {
 		saving = true;
 		try {
-			await api.servers.create(form);
+			if (editingId) {
+				// On edit, only send password if user typed one (otherwise keep existing)
+				const payload: Record<string, unknown> = { ...form };
+				if (!form.password) delete payload.password;
+				await api.servers.update(editingId, payload);
+			} else {
+				await api.servers.create(form);
+			}
 			showForm = false;
+			editingId = null;
 			resetForm();
 			await load();
 		} catch (e) {
@@ -43,14 +73,10 @@
 	}
 
 	async function testConn() {
-		// Create a temp server to test — we POST then immediately check
 		testing = true;
 		testResult = null;
 		try {
-			const srv = await api.servers.create({ ...form, name: '__test__' + Date.now() });
-			testResult = await api.servers.test(srv.id);
-			await api.servers.delete(srv.id);
-			await load();
+			testResult = await api.servers.testCredentials(form);
 		} catch (e) {
 			testResult = { ok: false, error: (e as Error).message };
 		} finally {
@@ -74,7 +100,7 @@
 	<div class="flex items-center justify-between">
 		<h1 class="text-xl font-semibold text-zinc-100">Servers</h1>
 		<button
-			onclick={() => { showForm = !showForm; resetForm(); }}
+			onclick={openCreate}
 			class="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-500"
 		>
 			<Plus class="w-4 h-4" />
@@ -82,10 +108,10 @@
 		</button>
 	</div>
 
-	<!-- Add Server form -->
+	<!-- Add/Edit Server form -->
 	{#if showForm}
 		<div class="bg-zinc-900 border border-zinc-700 rounded-xl p-6">
-			<h2 class="font-semibold text-zinc-200 mb-4">Add Server</h2>
+			<h2 class="font-semibold text-zinc-200 mb-4">{editingId ? 'Edit Server' : 'Add Server'}</h2>
 			<div class="grid grid-cols-2 gap-4 mb-4">
 				<div>
 					<label for="srv-name" class="block text-sm text-zinc-400 mb-1">Display Name</label>
@@ -108,8 +134,11 @@
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div>
-					<label for="srv-pass" class="block text-sm text-zinc-400 mb-1">Password</label>
+					<label for="srv-pass" class="block text-sm text-zinc-400 mb-1">
+						Password{#if editingId} <span class="text-zinc-600 text-xs">(leave empty to keep)</span>{/if}
+					</label>
 					<input id="srv-pass" bind:value={form.password} type="password"
+						placeholder={editingId ? '••••••••' : ''}
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div class="flex items-center gap-3 pt-5">
@@ -134,13 +163,15 @@
 			<div class="flex items-center gap-3">
 				<button onclick={save} disabled={saving}
 					class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
-					{saving ? 'Saving...' : 'Save Server'}
+					{saving ? 'Saving...' : editingId ? 'Update Server' : 'Save Server'}
 				</button>
-				<button onclick={testConn} disabled={testing || !form.hostname || !form.password}
-					class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
-					{testing ? 'Testing...' : 'Test Connection'}
-				</button>
-				<button onclick={() => { showForm = false; resetForm(); }}
+				{#if !editingId}
+					<button onclick={testConn} disabled={testing || !form.hostname || !form.password}
+						class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
+						{testing ? 'Testing...' : 'Test Connection'}
+					</button>
+				{/if}
+				<button onclick={() => { showForm = false; editingId = null; resetForm(); }}
 					class="px-4 py-2 text-sm rounded-lg text-zinc-500 hover:text-zinc-300">
 					Cancel
 				</button>
@@ -176,11 +207,16 @@
 						</td>
 						<td class="px-5 py-3">
 							<div class="flex items-center gap-2 justify-end">
-								<a href="/servers/{s.id}" class="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg">
+								<button
+									onclick={() => openEdit(s)}
+									title="Edit"
+									class="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg"
+								>
 									<Edit2 class="w-3.5 h-3.5" />
-								</a>
+								</button>
 								<button
 									onclick={() => deleteServer(s.id, s.name)}
+									title="Delete"
 									class="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
 								>
 									<Trash2 class="w-3.5 h-3.5" />

@@ -31,6 +31,23 @@ func (h *JobsHandler) GetAllJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, jobs)
 }
 
+// GetIDRACJobs fetches the live iDRAC job queue from the BMC (not our local DB).
+// This shows what iDRAC itself is processing — Lifecycle Controller jobs,
+// configuration jobs, etc. — independent of jobs we queued ourselves.
+func (h *JobsHandler) GetIDRACJobs(c *gin.Context) {
+	client, err := h.buildClient(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+		return
+	}
+	jobs, err := client.GetJobs()
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, jobs)
+}
+
 func (h *JobsHandler) DeleteJob(c *gin.Context) {
 	id := c.Param("id")
 	jid := c.Param("jid")

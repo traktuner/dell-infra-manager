@@ -26,6 +26,7 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		// Server CRUD
 		api.GET("/servers", servers.List)
 		api.POST("/servers", servers.Create)
+		api.POST("/servers/test", servers.TestCredentials)
 		api.GET("/servers/:id", servers.Get)
 		api.PUT("/servers/:id", servers.Update)
 		api.DELETE("/servers/:id", servers.Delete)
@@ -60,8 +61,9 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		api.POST("/servers/:id/firmware/update", fw.QueueUpdate)
 		api.POST("/servers/bulk/firmware/update", fw.BulkQueueUpdate)
 
-		// iDRAC Jobs
-		api.GET("/servers/:id/jobs", jobs.GetServerJobs)
+		// Jobs
+		api.GET("/servers/:id/jobs", jobs.GetServerJobs)         // local jobs we queued
+		api.GET("/servers/:id/jobs/idrac", jobs.GetIDRACJobs)    // live iDRAC job queue
 		api.DELETE("/servers/:id/jobs/:jid", jobs.DeleteJob)
 		api.DELETE("/servers/:id/jobs", jobs.ClearAllJobs)
 

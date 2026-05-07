@@ -7,6 +7,11 @@ frontend/node_modules/
 frontend/build/
 frontend/.svelte-kit/
 
+# Editor / tooling
+.claude/
+.idea/
+.vscode/
+
 # Data (never commit credentials or DB)
 data/
 *.sqlite
