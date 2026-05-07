@@ -17,7 +17,7 @@ import (
 	"github.com/dell-infra-manager/backend/worker"
 )
 
-//go:embed frontend/dist
+//go:embed all:frontend/dist
 var staticFiles embed.FS
 
 func main() {
