@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/dell-infra-manager/backend/config"
@@ -8,7 +9,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config) *gin.Engine {
+func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gin.Engine {
 	r := gin.Default()
 
 	servers := NewServerHandler(db, hub)
@@ -72,12 +73,29 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config) *gin.Engine {
 	// WebSocket
 	r.GET("/ws", hub.HandleWS)
 
-	// Serve embedded frontend — all non-API routes serve the SPA
-	r.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-	})
+	// Serve embedded SvelteKit SPA — static assets directly, unknown paths → index.html
+	sub, _ := fs.Sub(staticFiles, "frontend/dist")
+	r.NoRoute(spaHandler(sub))
 
 	return r
+}
+
+func spaHandler(fsys fs.FS) gin.HandlerFunc {
+	fileServer := http.FileServer(http.FS(fsys))
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path == "/" || path == "" {
+			path = "index.html"
+		} else {
+			// strip leading slash for fs.Stat
+			path = path[1:]
+		}
+		if _, err := fs.Stat(fsys, path); err != nil {
+			// unknown path → SPA fallback
+			c.Request.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	}
 }
 
 func getDashboard(db *sqlx.DB) gin.HandlerFunc {

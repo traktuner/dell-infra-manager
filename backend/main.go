@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,9 @@ import (
 	"github.com/dell-infra-manager/backend/database"
 	"github.com/dell-infra-manager/backend/worker"
 )
+
+//go:embed frontend/dist
+var staticFiles embed.FS
 
 func main() {
 	cfg := config.Load()
@@ -46,7 +50,7 @@ func main() {
 	go pool.Run(ctx)
 
 	// HTTP router
-	router := api.NewRouter(db, hub, cfg)
+	router := api.NewRouter(db, hub, cfg, staticFiles)
 
 	srv := &http.Server{
 		Addr:    cfg.Server.Host + ":" + cfg.Server.Port,
