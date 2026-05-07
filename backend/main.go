@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dell-manager/backend/api"
-	"github.com/dell-manager/backend/config"
-	"github.com/dell-manager/backend/crypto"
-	"github.com/dell-manager/backend/database"
-	"github.com/dell-manager/backend/worker"
+	"github.com/dell-infra-manager/backend/api"
+	"github.com/dell-infra-manager/backend/config"
+	"github.com/dell-infra-manager/backend/crypto"
+	"github.com/dell-infra-manager/backend/database"
+	"github.com/dell-infra-manager/backend/worker"
 )
 
 func main() {
@@ -54,7 +54,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("dell-manager listening on %s", srv.Addr)
+		log.Printf("dell-infra-manager listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}
@@ -70,5 +70,5 @@ func main() {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
-	log.Println("dell-manager stopped")
+	log.Println("dell-infra-manager stopped")
 }

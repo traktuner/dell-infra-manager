@@ -9,20 +9,21 @@ RUN npm run build
 # Stage 2: Backend Build (no CGO needed — pure Go SQLite)
 FROM golang:1.26-alpine AS backend
 WORKDIR /app/backend
-COPY backend/go.mod backend/go.sum ./
-RUN go mod download
+COPY backend/go.mod ./
+# go.sum wird beim ersten Build automatisch generiert; danach gecacht solange go.mod unverändert bleibt
+RUN go mod download -x 2>/dev/null || go mod tidy
 COPY backend/ ./
 COPY --from=frontend /app/frontend/build ./frontend/dist
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o dell-manager .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o dell-infra-manager .
 
 # Stage 3: Final minimal image
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
-COPY --from=backend /app/backend/dell-manager ./
+COPY --from=backend /app/backend/dell-infra-manager ./
 RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -q --spider http://localhost:8080/api/v1/dashboard || exit 1
-ENTRYPOINT ["./dell-manager"]
+ENTRYPOINT ["./dell-infra-manager"]

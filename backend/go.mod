@@ -1,4 +1,4 @@
-module github.com/dell-manager/backend
+module github.com/dell-infra-manager/backend
 
 go 1.26
 

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/dell-manager/backend/crypto"
-	"github.com/dell-manager/backend/models"
-	"github.com/dell-manager/backend/redfish"
+	"github.com/dell-infra-manager/backend/crypto"
+	"github.com/dell-infra-manager/backend/models"
+	"github.com/dell-infra-manager/backend/redfish"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )

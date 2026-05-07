@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/dell-manager/backend/config"
+	"github.com/dell-infra-manager/backend/config"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
