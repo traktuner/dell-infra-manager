@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import type { StorageDetail } from '$lib/types';
 	import { api } from '$lib/api';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { onMount } from 'svelte';
 	import { HardDrive, Database } from '@lucide/svelte';
 
-	const id = $derived($page.params.id);
+	const id = $derived(page.params.id);
 
 	let storage = $state<StorageDetail[]>([]);
 	let loading = $state(true);

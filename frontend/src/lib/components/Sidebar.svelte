@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import {
 		LayoutDashboard,
 		Server,
@@ -16,7 +16,7 @@
 		{ href: '/jobs', label: 'Jobs', icon: ListChecks }
 	];
 
-	const active = $derived($page.url.pathname);
+	const active = $derived(page.url.pathname);
 </script>
 
 <aside class="w-56 shrink-0 flex flex-col bg-zinc-900 border-r border-zinc-800 min-h-screen">

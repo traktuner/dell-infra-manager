@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import VirtualMediaPanel from '$lib/components/VirtualMediaPanel.svelte';
 
-	const id = $derived($page.params.id);
+	const id = $derived(page.params.id);
 </script>
 
 <div class="space-y-6">

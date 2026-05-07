@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import type { FirmwareComponent, AvailableUpdate } from '$lib/types';
 	import { api } from '$lib/api';
 	import FirmwareTable from '$lib/components/FirmwareTable.svelte';
 	import { onMount } from 'svelte';
 	import { RefreshCw, AlertCircle } from '@lucide/svelte';
 
-	const id = $derived($page.params.id);
+	const id = $derived(page.params.id);
 
 	let components = $state<FirmwareComponent[]>([]);
 	let updates = $state<AvailableUpdate[]>([]);

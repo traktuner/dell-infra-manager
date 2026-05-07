@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import type { Server, ServerCache, SystemInfo, ThermalInfo, PowerInfo, WSEvent } from '$lib/types';
 	import { api } from '$lib/api';
 	import { wsManager } from '$lib/websocket';
@@ -9,7 +9,7 @@
 	import { onMount } from 'svelte';
 	import { Thermometer, Zap, HardDrive, FileText, Cpu, Wind } from '@lucide/svelte';
 
-	const id = $derived($page.params.id);
+	const id = $derived(page.params.id);
 
 	let server = $state<Server | null>(null);
 	let cache = $state<ServerCache | null>(null);

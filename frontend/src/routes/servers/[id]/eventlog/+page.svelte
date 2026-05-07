@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import type { LogEntry } from '$lib/types';
 	import { api } from '$lib/api';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { onMount } from 'svelte';
 	import { Trash2, ChevronLeft, ChevronRight } from '@lucide/svelte';
 
-	const id = $derived($page.params.id);
+	const id = $derived(page.params.id);
 
 	let entries = $state<LogEntry[]>([]);
 	let total = $state(0);

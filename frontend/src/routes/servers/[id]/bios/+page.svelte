@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import type { BiosRegistryEntry, Job } from '$lib/types';
 	import { api } from '$lib/api';
 	import BiosAttributeEditor from '$lib/components/BiosAttributeEditor.svelte';
@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { Search, AlertCircle, Clock } from '@lucide/svelte';
 
-	const id = $derived($page.params.id);
+	const id = $derived(page.params.id);
 
 	let attributes = $state<Record<string, unknown>>({});
 	let registryMap = $state<Map<string, BiosRegistryEntry>>(new Map());
