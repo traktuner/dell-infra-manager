@@ -5,6 +5,14 @@
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>Dell iDRAC Manager</title>
+		<script>
+			// Workaround for SvelteKit reload loop when document.URL !== location.href
+			// (https://github.com/sveltejs/kit/blob/main/packages/kit/src/runtime/client/client.js#L336)
+			// Some proxies/browsers cause a transient mismatch on bare URLs ("/") which triggers
+			// SvelteKit to do `location.href = location.href`, causing an infinite reload loop.
+			// Calling replaceState forces document.URL to match location.href.
+			try { history.replaceState(history.state, '', location.href); } catch (e) {}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover" class="bg-zinc-950 text-zinc-100 antialiased">

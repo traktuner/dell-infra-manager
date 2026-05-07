@@ -88,28 +88,28 @@
 			<h2 class="font-semibold text-zinc-200 mb-4">Add Server</h2>
 			<div class="grid grid-cols-2 gap-4 mb-4">
 				<div>
-					<label class="block text-sm text-zinc-400 mb-1">Display Name</label>
-					<input bind:value={form.name} placeholder="dell-r640-01"
+					<label for="srv-name" class="block text-sm text-zinc-400 mb-1">Display Name</label>
+					<input id="srv-name" bind:value={form.name} placeholder="dell-r640-01"
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div>
-					<label class="block text-sm text-zinc-400 mb-1">iDRAC Hostname / IP</label>
-					<input bind:value={form.hostname} placeholder="192.168.1.100"
+					<label for="srv-host" class="block text-sm text-zinc-400 mb-1">iDRAC Hostname / IP</label>
+					<input id="srv-host" bind:value={form.hostname} placeholder="192.168.1.100"
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div>
-					<label class="block text-sm text-zinc-400 mb-1">Port</label>
-					<input bind:value={form.port} type="number"
+					<label for="srv-port" class="block text-sm text-zinc-400 mb-1">Port</label>
+					<input id="srv-port" bind:value={form.port} type="number"
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div>
-					<label class="block text-sm text-zinc-400 mb-1">Username</label>
-					<input bind:value={form.username}
+					<label for="srv-user" class="block text-sm text-zinc-400 mb-1">Username</label>
+					<input id="srv-user" bind:value={form.username}
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div>
-					<label class="block text-sm text-zinc-400 mb-1">Password</label>
-					<input bind:value={form.password} type="password"
+					<label for="srv-pass" class="block text-sm text-zinc-400 mb-1">Password</label>
+					<input id="srv-pass" bind:value={form.password} type="password"
 						class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
 				</div>
 				<div class="flex items-center gap-3 pt-5">

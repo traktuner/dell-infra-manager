@@ -94,12 +94,13 @@
 		<!-- Mount new ISO -->
 		{#if !cdSlot?.Inserted}
 			<div>
-				<label class="block text-sm text-zinc-400 mb-1.5">
+				<label for="iso-url" class="block text-sm text-zinc-400 mb-1.5">
 					<Link class="w-3.5 h-3.5 inline mr-1" />
 					ISO URL (HTTP, HTTPS, CIFS, NFS)
 				</label>
 				<div class="flex gap-2">
 					<input
+						id="iso-url"
 						type="url"
 						bind:value={imageUrl}
 						placeholder="http://fileserver/ubuntu-24.04.iso"

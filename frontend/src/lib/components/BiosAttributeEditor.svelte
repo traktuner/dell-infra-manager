@@ -2,6 +2,7 @@
 	import type { BiosRegistryEntry } from '$lib/types';
 	import { api } from '$lib/api';
 	import { Save, X, AlertCircle } from '@lucide/svelte';
+	import { untrack } from 'svelte';
 
 	type Props = {
 		serverId: string;
@@ -12,9 +13,11 @@
 	let { serverId, entry, onclose, onsave }: Props = $props();
 
 	let value = $state<string | number>(
-		typeof entry.current_value === 'number'
-			? entry.current_value
-			: String(entry.current_value ?? '')
+		untrack(() =>
+			typeof entry.current_value === 'number'
+				? entry.current_value
+				: String(entry.current_value ?? '')
+		)
 	);
 	let saving = $state(false);
 	let error = $state('');
@@ -51,8 +54,9 @@
 
 		<div class="mb-5">
 			{#if entry.Type === 'Enumeration' && entry.AllowedValues?.length}
-				<label class="block text-sm text-zinc-400 mb-1.5">Value</label>
+				<label for="bios-enum" class="block text-sm text-zinc-400 mb-1.5">Value</label>
 				<select
+					id="bios-enum"
 					bind:value
 					class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200
 						text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
