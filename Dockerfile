@@ -3,10 +3,12 @@ FROM node:24-alpine AS frontend
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
-# --mount=type=cache keeps the npm cache between builds.
-# Packages are only re-fetched when package-lock.json changes.
+# npm ci is strict (requires lock file to match package.json exactly).
+# npm install regenerates the lock file when there's a mismatch — needed when
+# Renovate updates package.json but the lock file is stale (e.g. peer deps shift).
+# We prefer ci for reproducibility; fall back to install only if ci fails.
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+    npm ci || npm install
 
 COPY frontend/ ./
 RUN npm run build
