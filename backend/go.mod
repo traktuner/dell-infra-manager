@@ -48,7 +48,7 @@ require (
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/net v0.39.0
 	golang.org/x/sys v0.32.0 // indirect
-	golang.org/x/text v0.24.0
+	golang.org/x/text v0.36.0
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
