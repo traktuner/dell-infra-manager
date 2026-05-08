@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/spf13/viper v1.21.0
-	modernc.org/sqlite v1.36.0
+	modernc.org/sqlite v1.50.0
 )
 
 require (
