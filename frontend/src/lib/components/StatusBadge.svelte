@@ -20,8 +20,8 @@
 		failed: 'bg-red-500/20 text-red-400 ring-red-500/30'
 	};
 
-	const sizeClass = size === 'sm' ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-1 text-xs';
-	const color = colorMap[status] ?? 'bg-zinc-500/20 text-zinc-400 ring-zinc-500/30';
+	const sizeClass = $derived(size === 'sm' ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-1 text-xs');
+	const color = $derived(colorMap[status] ?? 'bg-zinc-500/20 text-zinc-400 ring-zinc-500/30');
 </script>
 
 <span class="inline-flex items-center rounded-md ring-1 ring-inset font-medium {sizeClass} {color}">
