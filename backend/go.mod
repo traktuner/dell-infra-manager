@@ -46,7 +46,7 @@ require (
 	golang.org/x/arch v0.14.0 // indirect
 	golang.org/x/crypto v0.37.0
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
-	golang.org/x/net v0.39.0
+	golang.org/x/net v0.53.0
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0
 	google.golang.org/protobuf v1.36.6 // indirect
