@@ -48,13 +48,12 @@
 
 		// Load noVNC dynamically (it uses browser APIs, can't run in SSR).
 		try {
-			// Dynamic import — browser only. The string literal is intentionally
-			// not statically analysable so Vite/rolldown does not try to bundle
-			// or resolve this package during SSR/prerender.
+			// noVNC v1.7+ restricted its package.json `exports` field, so the
+			// deep path `@novnc/novnc/core/rfb.js` is no longer resolvable by
+			// Vite 8 / rolldown. The package root re-exports RFB.
 			// @ts-ignore — noVNC has no TypeScript declarations
-			const pkg = '@novnc/novnc/core/rfb.js';
-			const mod = await import(/* @vite-ignore */ pkg);
-			RFB = mod.default;
+			const mod: any = await import('@novnc/novnc');
+			RFB = mod.default ?? mod.RFB ?? mod;
 		} catch (e) {
 			console.warn('noVNC load failed, will use SOL only:', e);
 		}
