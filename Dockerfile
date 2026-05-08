@@ -3,12 +3,13 @@ FROM node:24-alpine AS frontend
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
-# npm ci is strict (requires lock file to match package.json exactly).
-# npm install regenerates the lock file when there's a mismatch — needed when
-# Renovate updates package.json but the lock file is stale (e.g. peer deps shift).
-# We prefer ci for reproducibility; fall back to install only if ci fails.
+# Delete any stale lock file before installing — Renovate sometimes updates
+# package.json (e.g. bumping vite-plugin-svelte to v7) without updating the
+# lock file, which causes npm ci / npm install to error on peer dep conflicts.
+# A fresh install always produces a consistent resolution.
+# Long-term: commit a regenerated package-lock.json so this is just `npm ci`.
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci || npm install
+    rm -f package-lock.json && npm install
 
 COPY frontend/ ./
 RUN npm run build
