@@ -190,8 +190,10 @@ func (h *ServerHandler) GetSummary(c *gin.Context) {
 	id := c.Param("id")
 	var cache models.ServerCache
 	if err := h.db.Get(&cache, `SELECT * FROM server_cache WHERE server_id = ?`, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no cache for server"})
-		return
+		// No cache row yet — return a default so the frontend always gets a value.
+		// A 404 here would silently break the dashboard WebSocket update path
+		// (caches.get(server_id) returns undefined → WS status events are dropped).
+		cache = models.ServerCache{ServerID: id, Status: "unknown"}
 	}
 	c.JSON(http.StatusOK, cache)
 }

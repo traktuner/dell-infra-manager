@@ -16,17 +16,17 @@ type Server struct {
 }
 
 type ServerCache struct {
-	ServerID           string     `db:"server_id"`
-	SystemJSON         *string    `db:"system_json"`
-	ThermalJSON        *string    `db:"thermal_json"`
-	PowerJSON          *string    `db:"power_json"`
-	FirmwareJSON       *string    `db:"firmware_json"`
-	StorageJSON        *string    `db:"storage_json"`
-	BiosJSON           *string    `db:"bios_json"`
-	BiosRegistryJSON   *string    `db:"bios_registry_json"`
-	VirtualMediaJSON   *string    `db:"virtualmedia_json"`
-	LastSeen           *time.Time `db:"last_seen"`
-	Status             string     `db:"status"`
+	ServerID           string     `db:"server_id"          json:"server_id"`
+	SystemJSON         *string    `db:"system_json"        json:"system_json"`
+	ThermalJSON        *string    `db:"thermal_json"       json:"thermal_json"`
+	PowerJSON          *string    `db:"power_json"         json:"power_json"`
+	FirmwareJSON       *string    `db:"firmware_json"      json:"firmware_json"`
+	StorageJSON        *string    `db:"storage_json"       json:"storage_json"`
+	BiosJSON           *string    `db:"bios_json"          json:"bios_json"`
+	BiosRegistryJSON   *string    `db:"bios_registry_json" json:"bios_registry_json"`
+	VirtualMediaJSON   *string    `db:"virtualmedia_json"  json:"virtualmedia_json"`
+	LastSeen           *time.Time `db:"last_seen"          json:"last_seen"`
+	Status             string     `db:"status"             json:"status"`
 }
 
 // AddServerRequest is the incoming JSON for creating a server.

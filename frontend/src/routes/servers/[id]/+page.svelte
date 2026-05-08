@@ -99,7 +99,7 @@
 		storageLoading = true;
 		storageError = '';
 		try {
-			storage = await api.cache.storage(id);
+			storage = (await api.cache.storage(id)) ?? [];
 			storageLoaded = true;
 		} catch (e) {
 			storageError = (e as Error).message;
@@ -167,7 +167,7 @@
 			biosAttributes = biosResp.Attributes;
 			biosPending = pending;
 			const map = new Map<string, BiosRegistryEntry>();
-			for (const entry of registry.RegistryEntries ?? []) {
+			for (const entry of registry.RegistryEntries?.Attributes ?? []) {
 				map.set(entry.AttributeName, {
 					...entry,
 					current_value: biosResp.Attributes[entry.AttributeName],

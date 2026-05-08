@@ -11,8 +11,15 @@ type BiosResponse struct {
 	Attributes map[string]interface{} `json:"Attributes"`
 }
 
+// BiosRegistry is the top-level response from /Bios/BiosRegistry.
+// iDRAC9 returns RegistryEntries as an object with sub-keys (Attributes, Dependencies, Menus),
+// NOT as a flat array — hence the nested struct.
 type BiosRegistry struct {
-	RegistryEntries []BiosRegistryAttribute `json:"RegistryEntries"`
+	RegistryEntries BiosRegistryEntries `json:"RegistryEntries"`
+}
+
+type BiosRegistryEntries struct {
+	Attributes []BiosRegistryAttribute `json:"Attributes"`
 }
 
 type BiosRegistryAttribute struct {

@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"sync"
 )
 
 type FirmwareCollection struct {
@@ -28,14 +29,33 @@ func (c *Client) GetFirmwareInventory() ([]FirmwareComponent, error) {
 		return nil, err
 	}
 
-	var components []FirmwareComponent
-	for _, ref := range col.Members {
-		var comp FirmwareComponent
-		if err := c.get(stripBaseURL(ref.ID), &comp); err == nil {
-			components = append(components, comp)
+	// Fetch all components in parallel — serial fetches with 50+ components
+	// can block the initial poll for several minutes.
+	const maxConcurrent = 10
+	sem := make(chan struct{}, maxConcurrent)
+	components := make([]FirmwareComponent, len(col.Members))
+	var wg sync.WaitGroup
+	for i, ref := range col.Members {
+		wg.Add(1)
+		go func(i int, path string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			var comp FirmwareComponent
+			if err := c.get(path, &comp); err == nil {
+				components[i] = comp
+			}
+		}(i, stripBaseURL(ref.ID))
+	}
+	wg.Wait()
+
+	var result []FirmwareComponent
+	for _, comp := range components {
+		if comp.ID != "" {
+			result = append(result, comp)
 		}
 	}
-	return components, nil
+	return result, nil
 }
 
 type UpdateParams struct {

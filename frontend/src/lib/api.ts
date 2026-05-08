@@ -62,7 +62,7 @@ export const api = {
 	bios: {
 		get: (id: string) => request<BiosAttributes>('GET', `/servers/${id}/bios`),
 		registry: (id: string) =>
-			request<{ RegistryEntries: BiosRegistryEntry[] }>('GET', `/servers/${id}/bios/registry`),
+			request<{ RegistryEntries: { Attributes: BiosRegistryEntry[] } }>('GET', `/servers/${id}/bios/registry`),
 		patch: (id: string, attributes: Record<string, unknown>, applyTime = 'OnReset') =>
 			request<{ job_id: string }>('PATCH', `/servers/${id}/bios/settings`, {
 				attributes,

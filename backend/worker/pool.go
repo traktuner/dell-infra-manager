@@ -169,7 +169,11 @@ func (p *Pool) serverWorker(ctx context.Context, s models.Server) {
 		case <-ctx.Done():
 			return
 		case event, ok := <-sseCh:
-			if ok {
+			if !ok {
+				// Channel closed — SSEListener exhausted retries.
+				// Nil it out so this case never fires again (nil channel blocks forever).
+				sseCh = nil
+			} else {
 				p.handleSSEEvent(event)
 			}
 		case <-systemTicker.C:

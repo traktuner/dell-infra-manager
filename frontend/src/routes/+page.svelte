@@ -27,16 +27,19 @@
 
 	onMount(() => {
 		load();
-		// Live updates
 		const unsub = wsManager.on('server_status', (e: WSEvent) => {
-			if (e.server_id) {
-				const cache = caches.get(e.server_id);
-				if (cache) {
-					caches = new Map(caches).set(e.server_id, {
-						...cache,
-						status: (e.data.status as ServerCache['status']) ?? cache.status
-					});
-				}
+			if (!e.server_id) return;
+			const existing = caches.get(e.server_id);
+			if (existing) {
+				caches = new Map(caches).set(e.server_id, {
+					...existing,
+					status: (e.data.status as ServerCache['status']) ?? existing.status
+				});
+			} else {
+				// Cache entry missing (first WS event before load() completed) — re-fetch.
+				api.cache.summary(e.server_id).then((c) => {
+					caches = new Map(caches).set(e.server_id!, c);
+				}).catch(() => {});
 			}
 		});
 		return unsub;
