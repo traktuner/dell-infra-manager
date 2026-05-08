@@ -104,7 +104,15 @@
 	{:else}
 		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 			{#each servers as server}
-				<ServerCard {server} cache={caches.get(server.id) ?? null} />
+				<ServerCard
+				{server}
+				cache={caches.get(server.id) ?? null}
+				onrefresh={() => {
+					api.cache.summary(server.id).then((c) => {
+						caches = new Map(caches).set(server.id, c);
+					}).catch(() => {});
+				}}
+			/>
 			{/each}
 		</div>
 	{/if}

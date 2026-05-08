@@ -54,9 +54,25 @@ type catalogComponent struct {
 	} `xml:"SupportedSystems"`
 }
 
+// catalogClient is a dedicated HTTP client for catalog downloads.
+// DisableCompression ensures Go does NOT transparently gunzip the response —
+// the catalog is already a .gz file and we want to save the raw bytes so that
+// our own gzip.NewReader calls work correctly later.
+// The 10-minute timeout covers slow connections downloading the ~100 MB file.
+var catalogClient = &http.Client{
+	Timeout: 10 * time.Minute,
+	Transport: &http.Transport{
+		DisableCompression: true,
+	},
+}
+
 // DownloadCatalog unconditionally downloads the catalog to cachePath.
 func DownloadCatalog(catalogURL, cachePath string) error {
-	resp, err := http.Get(catalogURL) //nolint:gosec
+	req, err := http.NewRequest(http.MethodGet, catalogURL, nil)
+	if err != nil {
+		return fmt.Errorf("download catalog: %w", err)
+	}
+	resp, err := catalogClient.Do(req) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("download catalog: %w", err)
 	}
@@ -78,8 +94,9 @@ func DownloadCatalog(catalogURL, cachePath string) error {
 
 // DownloadCatalogIfModified does a conditional GET using If-Modified-Since
 // against the local file's mtime. Returns (downloaded, error).
-//   downloaded=true  → the catalog was updated on disk
-//   downloaded=false → server returned 304 Not Modified, local copy is fresh
+//
+//	downloaded=true  → the catalog was updated on disk
+//	downloaded=false → server returned 304 Not Modified, local copy is fresh
 //
 // Intended for the user-facing "Check for Updates" button: cheap when nothing
 // changed (Dell answers in milliseconds without a body), full download only
@@ -93,7 +110,7 @@ func DownloadCatalogIfModified(catalogURL, cachePath string) (bool, error) {
 		req.Header.Set("If-Modified-Since", info.ModTime().UTC().Format(http.TimeFormat))
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := catalogClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("download catalog: %w", err)
 	}

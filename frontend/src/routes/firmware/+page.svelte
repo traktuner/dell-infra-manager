@@ -55,10 +55,18 @@
 			servers.map((s) => api.firmware.available(s.id))
 		);
 		const upd = new Map<string, AvailableUpdate[]>();
+		const serverErrors: string[] = [];
 		results.forEach((r, i) => {
-			if (r.status === 'fulfilled') upd.set(servers[i].id, r.value);
+			if (r.status === 'fulfilled') {
+				upd.set(servers[i].id, r.value);
+			} else {
+				serverErrors.push(`${servers[i].name}: ${(r.reason as Error).message}`);
+			}
 		});
 		updates = upd;
+		if (serverErrors.length > 0 && !bulkError) {
+			bulkError = serverErrors.join(' · ');
+		}
 		checking = false;
 	}
 

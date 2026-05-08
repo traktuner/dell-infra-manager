@@ -1,11 +1,31 @@
 <script lang="ts">
 	import type { Server, ServerCache, SystemInfo, PowerInfo, ThermalInfo, TempSensor } from '$lib/types';
 	import StatusBadge from './StatusBadge.svelte';
-	import { Cpu, Thermometer, Zap, RotateCcw, Server as ServerIcon, MemoryStick } from '@lucide/svelte';
+	import { Cpu, Thermometer, Zap, Server as ServerIcon, MemoryStick, RefreshCw } from '@lucide/svelte';
 	import { api } from '$lib/api';
 
-	type Props = { server: Server; cache: ServerCache | null };
-	let { server, cache }: Props = $props();
+	type Props = { server: Server; cache: ServerCache | null; onrefresh?: () => void };
+	let { server, cache, onrefresh }: Props = $props();
+
+	let refreshing = $state(false);
+
+	async function refreshData(e: MouseEvent) {
+		e.preventDefault(); // don't navigate to /servers/:id
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			await Promise.all([
+				api.cache.summary(server.id),
+				api.cache.thermal(server.id),
+				api.cache.power(server.id),
+			]);
+		} catch {
+			// ignore — stale data is fine
+		} finally {
+			refreshing = false;
+		}
+		onrefresh?.();
+	}
 
 	const system = $derived<SystemInfo | null>(
 		cache?.system_json ? JSON.parse(cache.system_json) : null
@@ -65,17 +85,6 @@
 		cache?.last_seen ? new Date(cache.last_seen).toLocaleTimeString() : null
 	);
 
-	let rebooting = $state(false);
-	async function quickReboot() {
-		rebooting = true;
-		try {
-			await api.power.action(server.id, 'GracefulRestart');
-		} catch (e) {
-			alert((e as Error).message);
-		} finally {
-			rebooting = false;
-		}
-	}
 </script>
 
 <a
@@ -147,13 +156,13 @@
 			{/if}
 		</div>
 		<button
-			onclick={(e) => { e.preventDefault(); quickReboot(); }}
-			disabled={rebooting || cache?.status !== 'online'}
-			class="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800
-				disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-			title="Graceful Restart"
+			onclick={refreshData}
+			disabled={refreshing}
+			title="Kartendaten aktualisieren"
+			class="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800
+				disabled:opacity-30 transition-colors"
 		>
-			<RotateCcw class="w-3.5 h-3.5 {rebooting ? 'animate-spin' : ''}" />
+			<RefreshCw class="w-3.5 h-3.5 {refreshing ? 'animate-spin' : ''}" />
 		</button>
 	</div>
 
