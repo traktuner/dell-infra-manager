@@ -13,7 +13,13 @@ import (
 var migrations embed.FS
 
 func Open(path string) (*sqlx.DB, error) {
-	db, err := sqlx.Open("sqlite", path+"?_journal=WAL&_timeout=5000&_fk=true")
+	// modernc.org/sqlite uses _pragma=... for pragmas; _fk=true is the
+	// mattn/go-sqlite3 syntax and is silently ignored here. Without
+	// foreign_keys=on, ON DELETE CASCADE does NOT fire and you get orphan
+	// rows in server_cache after deleting a server (visible as
+	// "online: 3 / total: 2" on the dashboard).
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -23,6 +29,15 @@ func Open(path string) (*sqlx.DB, error) {
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+
+	// One-time cleanup of any orphans left over from before the fk fix.
+	if _, err := db.Exec(`DELETE FROM server_cache WHERE server_id NOT IN (SELECT id FROM servers)`); err != nil {
+		log.Printf("orphan cleanup: %v", err)
+	}
+	if _, err := db.Exec(`DELETE FROM jobs WHERE server_id NOT IN (SELECT id FROM servers)`); err != nil {
+		log.Printf("orphan cleanup: %v", err)
+	}
+
 	return db, nil
 }
 

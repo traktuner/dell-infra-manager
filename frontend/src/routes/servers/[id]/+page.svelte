@@ -39,11 +39,12 @@
 	let localJobs = $state<Job[]>([]);
 	let tab = $state<TabKey>('overview');
 
-	// Lazy-loaded tab state
+	// Lazy-loaded tab state. All "loaded" flags are $state too so we never mix
+	// reactive and non-reactive booleans for the same render path.
 	let storage = $state<StorageDetail[]>([]);
 	let storageLoading = $state(false);
 	let storageError = $state('');
-	let storageLoaded = false;
+	let storageLoaded = $state(false);
 
 	let logEntries = $state<LogEntry[]>([]);
 	let logTotal = $state(0);
@@ -51,14 +52,14 @@
 	let logLoading = $state(false);
 	let logError = $state('');
 	const logTop = 100;
-	let logLoaded = false;
+	let logLoaded = $state(false);
 
 	let fwComponents = $state<FirmwareComponent[]>([]);
 	let fwUpdates = $state<AvailableUpdate[]>([]);
 	let fwLoading = $state(false);
 	let fwError = $state('');
 	let fwChecking = $state(false);
-	let fwLoaded = false;
+	let fwLoaded = $state(false);
 
 	let biosAttributes = $state<Record<string, unknown>>({});
 	let biosRegistry = $state<Map<string, BiosRegistryEntry>>(new Map());
@@ -67,12 +68,12 @@
 	let biosError = $state('');
 	let biosSearch = $state('');
 	let biosEditing = $state<BiosRegistryEntry | null>(null);
-	let biosLoaded = false;
+	let biosLoaded = $state(false);
 
 	let idracJobs = $state<IDRACJob[]>([]);
 	let idracJobsLoading = $state(false);
 	let idracJobsError = $state('');
-	let idracJobsLoaded = false;
+	let idracJobsLoaded = $state(false);
 
 	const system = $derived<SystemInfo | null>(
 		cache?.system_json ? JSON.parse(cache.system_json) : null
@@ -312,7 +313,8 @@
 			{/each}
 		</div>
 
-		<!-- Tab content -->
+		<!-- Tab content — one independent if-block per tab so a render fault
+		     in one can't break the chain for the others. -->
 		{#if tab === 'overview'}
 			<div class="grid grid-cols-3 gap-6">
 				<div class="col-span-2 space-y-4">
@@ -404,7 +406,9 @@
 				</div>
 			</div>
 
-		{:else if tab === 'storage'}
+		{/if}
+
+		{#if tab === 'storage'}
 			{#if storageLoading}
 				<div class="text-zinc-500 text-sm">Loading storage...</div>
 			{:else if storageError}
@@ -481,7 +485,9 @@
 				</div>
 			{/if}
 
-		{:else if tab === 'firmware'}
+		{/if}
+
+		{#if tab === 'firmware'}
 			<div class="space-y-4">
 				<div class="flex items-center justify-end">
 					<button
@@ -509,7 +515,9 @@
 				{/if}
 			</div>
 
-		{:else if tab === 'bios'}
+		{/if}
+
+		{#if tab === 'bios'}
 			<div class="space-y-4">
 				{#if biosPending.length > 0}
 					<div class="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
@@ -586,21 +594,16 @@
 				{/if}
 			</div>
 
-			{#if biosEditing}
-				<BiosAttributeEditor
-					serverId={id}
-					entry={biosEditing}
-					onclose={() => (biosEditing = null)}
-					onsave={loadBios}
-				/>
-			{/if}
+		{/if}
 
-		{:else if tab === 'virtualmedia'}
+		{#if tab === 'virtualmedia'}
 			<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-xl">
 				<VirtualMediaPanel serverId={id} />
 			</div>
 
-		{:else if tab === 'eventlog'}
+		{/if}
+
+		{#if tab === 'eventlog'}
 			<div class="space-y-4">
 				<div class="flex items-center justify-between">
 					<span class="text-xs text-zinc-600">{logTotal} entries</span>
@@ -670,7 +673,9 @@
 				{/if}
 			</div>
 
-		{:else if tab === 'jobs'}
+		{/if}
+
+		{#if tab === 'jobs'}
 			<div class="space-y-6">
 				<!-- Live iDRAC job queue (from BMC) -->
 				<div>
@@ -737,6 +742,17 @@
 					</div>
 				</div>
 			</div>
+		{/if}
+
+		<!-- BIOS edit modal — fullscreen overlay, lives outside the tab if-chain
+		     so it can be triggered/closed without depending on the active tab. -->
+		{#if biosEditing}
+			<BiosAttributeEditor
+				serverId={id}
+				entry={biosEditing}
+				onclose={() => (biosEditing = null)}
+				onsave={loadBios}
+			/>
 		{/if}
 	</div>
 {/if}

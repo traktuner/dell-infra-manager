@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -242,13 +243,10 @@ func (p *Pool) pollThermal(client *redfish.Client, serverID, name string) {
 		data, _ := json.Marshal(t)
 		p.db.Exec(`UPDATE server_cache SET thermal_json=? WHERE server_id=?`, string(data), serverID)
 
-		inletTemp := 0.0
-		for _, ts := range t.Temperatures {
-			if ts.Name == "Inlet Temp" {
-				inletTemp = ts.ReadingCelsius
-				break
-			}
-		}
+		// iDRAC sensor names vary across firmware/chassis: "Inlet Temp",
+		// "System Inlet Temp", "Inlet Temperature", "Ambient Temp" etc.
+		// Try exact, then case-insensitive substring matches.
+		inletTemp := findInletReading(t.Temperatures)
 		p.hub.Emit("thermal_update", serverID, map[string]float64{"inlet_temp": inletTemp})
 	})
 }
@@ -337,6 +335,30 @@ func (p *Pool) handleSSEEvent(e redfish.SSEEvent) {
 		"type": e.EventType,
 		"data": e.Data,
 	})
+}
+
+// findInletReading picks an inlet/ambient temperature from a Redfish sensor list,
+// tolerating the various names iDRAC uses across firmware/chassis generations.
+func findInletReading(temps []redfish.TempSensor) float64 {
+	// 1) exact match
+	for _, t := range temps {
+		if t.Name == "Inlet Temp" {
+			return t.ReadingCelsius
+		}
+	}
+	// 2) any name containing "inlet" (case-insensitive)
+	for _, t := range temps {
+		if strings.Contains(strings.ToLower(t.Name), "inlet") {
+			return t.ReadingCelsius
+		}
+	}
+	// 3) "ambient" fallback
+	for _, t := range temps {
+		if strings.Contains(strings.ToLower(t.Name), "ambient") {
+			return t.ReadingCelsius
+		}
+	}
+	return 0
 }
 
 // lastSegment returns the last path segment of a URL/path string.

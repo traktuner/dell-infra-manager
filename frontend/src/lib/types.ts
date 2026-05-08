@@ -32,8 +32,13 @@ export interface SystemInfo {
 	PowerState: 'On' | 'Off' | 'PoweringOn' | 'PoweringOff';
 	BiosVersion: string;
 	Status: { Health: string; State: string };
-	ProcessorSummary: { Count: number };
+	ProcessorSummary: { Count: number; LogicalProcessorCount?: number; Model?: string };
 	MemorySummary: { TotalSystemMemoryGiB: number };
+	// Enriched server-side from /Memory and /Processors collections.
+	MemoryType?: string;
+	MemorySpeedMHz?: number;
+	CoresPerCPU?: number;
+	ThreadsPerCPU?: number;
 }
 
 export interface ThermalInfo {

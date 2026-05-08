@@ -102,19 +102,32 @@ func spaHandler(fsys fs.FS) gin.HandlerFunc {
 
 func getDashboard(db *sqlx.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Join through servers so an orphaned cache row (left over from a
+		// deleted server before fk enforcement was on) can't inflate the
+		// online/offline counters past the total.
 		var total, online, offline int
 		db.QueryRow(`SELECT COUNT(*) FROM servers`).Scan(&total)
-		db.QueryRow(`SELECT COUNT(*) FROM server_cache WHERE status = 'online'`).Scan(&online)
-		db.QueryRow(`SELECT COUNT(*) FROM server_cache WHERE status = 'offline'`).Scan(&offline)
+		db.QueryRow(`
+			SELECT COUNT(*) FROM servers s
+			JOIN server_cache c ON c.server_id = s.id
+			WHERE c.status = 'online'`).Scan(&online)
+		db.QueryRow(`
+			SELECT COUNT(*) FROM servers s
+			JOIN server_cache c ON c.server_id = s.id
+			WHERE c.status = 'offline'`).Scan(&offline)
 		var activeJobs int
 		db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')`).Scan(&activeJobs)
 
+		errCount := total - online - offline
+		if errCount < 0 {
+			errCount = 0
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"total_servers":  total,
-			"online":         online,
+			"total_servers": total,
+			"online":        online,
 			"offline":        offline,
-			"error":          total - online - offline,
-			"active_jobs":    activeJobs,
+			"error":         errCount,
+			"active_jobs":   activeJobs,
 		})
 	}
 }
