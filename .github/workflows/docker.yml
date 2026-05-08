@@ -23,8 +23,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
+      # go.sum must exist so the Dockerfile COPY succeeds and the module
+      # download layer is properly cached. Generate it if the repo doesn't
+      # have one committed (first-time setup).
+      - name: Ensure go.sum exists
+        run: |
+          if [ ! -f backend/go.sum ]; then
+            docker run --rm -v "$PWD/backend":/work -w /work golang:1.26-alpine \
+              go mod tidy
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -54,9 +61,17 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # amd64 only — no QEMU overhead.
+          # Add linux/arm64 here if you need to run on ARM hosts (Raspberry Pi,
+          # Apple Silicon NAS, etc.) — it will be ~4× slower due to QEMU emulation.
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Registry cache: stored in GHCR alongside the image.
+          # - Persistent (no 7-day expiry like GHA cache)
+          # - No 10 GB size limit
+          # - Works correctly with --mount=type=cache in the Dockerfile
+          # - mode=max caches ALL intermediate layers, not just the final image
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
