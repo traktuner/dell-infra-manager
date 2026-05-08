@@ -16,10 +16,18 @@
 	let expanded = $state<Set<string>>(new Set());
 	let bulking = $state(false);
 	let bulkError = $state('');
+	let catalogInfo = $state<{
+		available: boolean;
+		date_time?: string;
+		version?: string;
+		fetched_at?: string;
+	} | null>(null);
 
 	async function load() {
 		loading = true;
-		servers = await api.servers.list();
+		const [serverList, info] = await Promise.all([api.servers.list(), api.catalog.info()]);
+		servers = serverList;
+		catalogInfo = info;
 		const results = await Promise.allSettled(servers.map((s) => api.cache.firmware(s.id)));
 		const inv = new Map<string, FirmwareComponent[]>();
 		results.forEach((r, i) => {
@@ -29,16 +37,38 @@
 		loading = false;
 	}
 
+	// "Check for Updates" first triggers a conditional re-download of the
+	// Dell catalog (cheap 304 if nothing changed) and THEN re-runs the
+	// comparison for every server. The previous version compared against a
+	// stale local copy, so the button could only ever return the same
+	// updates over and over.
 	async function checkAllUpdates() {
 		checking = true;
 		bulkError = '';
-		const results = await Promise.allSettled(servers.map((s) => api.firmware.available(s.id)));
+		try {
+			const refreshed = await api.catalog.refresh();
+			catalogInfo = { available: true, ...refreshed };
+		} catch (e) {
+			bulkError = `Catalog refresh failed: ${(e as Error).message}`;
+		}
+		const results = await Promise.allSettled(
+			servers.map((s) => api.firmware.available(s.id))
+		);
 		const upd = new Map<string, AvailableUpdate[]>();
 		results.forEach((r, i) => {
 			if (r.status === 'fulfilled') upd.set(servers[i].id, r.value);
 		});
 		updates = upd;
 		checking = false;
+	}
+
+	function formatCatalogDate(s: string | undefined): string {
+		if (!s) return '—';
+		try {
+			return new Date(s).toLocaleDateString();
+		} catch {
+			return s;
+		}
 	}
 
 	function toggle(serverId: string) {
@@ -121,6 +151,18 @@
 						<span class="text-amber-400">{totalOutdated}</span> outdated component{totalOutdated > 1 ? 's' : ''}
 						across <span class="text-zinc-300">{serversWithUpdates.length}</span> server{serversWithUpdates.length > 1 ? 's' : ''}
 					{/if}
+				</div>
+			{/if}
+			{#if catalogInfo?.available}
+				<div class="text-xs text-zinc-600 mt-1">
+					Dell catalog
+					{#if catalogInfo.version}<span class="text-zinc-500">v{catalogInfo.version}</span>{/if}
+					· dated <span class="text-zinc-500">{formatCatalogDate(catalogInfo.date_time)}</span>
+					· last fetched <span class="text-zinc-500">{formatCatalogDate(catalogInfo.fetched_at)}</span>
+				</div>
+			{:else if catalogInfo}
+				<div class="text-xs text-amber-500 mt-1">
+					No Dell catalog cached yet — first "Check for Updates" will download it.
 				</div>
 			{/if}
 		</div>

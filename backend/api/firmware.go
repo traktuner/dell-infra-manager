@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/dell-infra-manager/backend/config"
 	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/models"
 	"github.com/dell-infra-manager/backend/redfish"
@@ -18,10 +20,51 @@ type FirmwareHandler struct {
 	db          *sqlx.DB
 	hub         *Hub
 	catalogPath string
+	catalogURL  string
 }
 
-func NewFirmwareHandler(db *sqlx.DB, hub *Hub, catalogPath string) *FirmwareHandler {
-	return &FirmwareHandler{db: db, hub: hub, catalogPath: catalogPath}
+func NewFirmwareHandler(db *sqlx.DB, hub *Hub, cfg *config.Config) *FirmwareHandler {
+	return &FirmwareHandler{
+		db:          db,
+		hub:         hub,
+		catalogPath: cfg.Dell.CachePath,
+		catalogURL:  cfg.Dell.CatalogURL,
+	}
+}
+
+// GetCatalogInfo exposes the locally-cached catalog's dateTime/version so the
+// UI can show "checking against catalog from <date>".
+func (h *FirmwareHandler) GetCatalogInfo(c *gin.Context) {
+	info, err := redfish.ReadCatalogInfo(h.catalogPath)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"available": false})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"available":  true,
+		"date_time":  info.DateTime,
+		"version":    info.Version,
+		"fetched_at": info.FetchedAt,
+	})
+}
+
+// RefreshCatalog does a conditional GET against Dell — cheap if nothing
+// changed on the server (304 Not Modified), full download otherwise.
+func (h *FirmwareHandler) RefreshCatalog(c *gin.Context) {
+	updated, err := redfish.DownloadCatalogIfModified(h.catalogURL, h.catalogPath)
+	if err != nil {
+		log.Printf("catalog refresh failed: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	info, _ := redfish.ReadCatalogInfo(h.catalogPath)
+	resp := gin.H{"updated": updated}
+	if info != nil {
+		resp["date_time"] = info.DateTime
+		resp["version"] = info.Version
+		resp["fetched_at"] = info.FetchedAt
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *FirmwareHandler) GetInventory(c *gin.Context) {
@@ -45,6 +88,17 @@ type AvailableUpdate struct {
 
 func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 	id := c.Param("id")
+
+	// Frontend "Check for Updates" button passes ?refresh=1 — do a conditional
+	// GET against Dell first. The local catalog may have new content even if
+	// our 24h timer hasn't fired yet.
+	if c.Query("refresh") == "1" {
+		if _, err := redfish.DownloadCatalogIfModified(h.catalogURL, h.catalogPath); err != nil {
+			log.Printf("catalog refresh during GetAvailable failed: %v", err)
+			// fall through — we can still serve stale results
+		}
+	}
+
 	var firmwareVal *string
 	h.db.QueryRow(`SELECT firmware_json FROM server_cache WHERE server_id = ?`, id).Scan(&firmwareVal)
 	if firmwareVal == nil {

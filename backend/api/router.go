@@ -16,7 +16,7 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 	actions := NewActionHandler(db, hub)
 	bios := NewBiosHandler(db, hub)
 	vm := NewVirtualMediaHandler(db, hub)
-	fw := NewFirmwareHandler(db, hub, cfg.Dell.CachePath)
+	fw := NewFirmwareHandler(db, hub, cfg)
 	storage := NewStorageHandler(db)
 	eventlog := NewEventLogHandler(db)
 	jobs := NewJobsHandler(db, hub)
@@ -60,6 +60,10 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		api.GET("/servers/:id/firmware/available", fw.GetAvailable)
 		api.POST("/servers/:id/firmware/update", fw.QueueUpdate)
 		api.POST("/servers/bulk/firmware/update", fw.BulkQueueUpdate)
+
+		// Catalog (Dell DUP catalog metadata + manual refresh)
+		api.GET("/catalog/info", fw.GetCatalogInfo)
+		api.POST("/catalog/refresh", fw.RefreshCatalog)
 
 		// Jobs
 		api.GET("/servers/:id/jobs", jobs.GetServerJobs)         // local jobs we queued

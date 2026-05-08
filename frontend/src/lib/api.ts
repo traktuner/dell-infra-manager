@@ -82,7 +82,14 @@ export const api = {
 	},
 	firmware: {
 		inventory: (id: string) => request<FirmwareComponent[]>('GET', `/servers/${id}/firmware`),
-		available: (id: string) => request<AvailableUpdate[]>('GET', `/servers/${id}/firmware/available`),
+		// `refresh=true` does a conditional GET against Dell's catalog server
+		// before running the comparison — cheap if Dell hasn't published a
+		// newer catalog (304), full re-download otherwise.
+		available: (id: string, refresh = false) =>
+			request<AvailableUpdate[]>(
+				'GET',
+				`/servers/${id}/firmware/available${refresh ? '?refresh=1' : ''}`
+			),
 		update: (id: string, component: string, catalogPath: string, version?: string) =>
 			request<{ job_id: string }>('POST', `/servers/${id}/firmware/update`, {
 				component,
@@ -95,6 +102,22 @@ export const api = {
 				component,
 				catalog_path: catalogPath
 			})
+	},
+	catalog: {
+		info: () =>
+			request<{
+				available: boolean;
+				date_time?: string;
+				version?: string;
+				fetched_at?: string;
+			}>('GET', '/catalog/info'),
+		refresh: () =>
+			request<{
+				updated: boolean;
+				date_time?: string;
+				version?: string;
+				fetched_at?: string;
+			}>('POST', '/catalog/refresh')
 	},
 	jobs: {
 		all: () => request<Job[]>('GET', '/jobs'),
