@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # go.sum must exist so the Dockerfile COPY succeeds and the module
       # download layer is properly cached. Generate it if the repo doesn't
