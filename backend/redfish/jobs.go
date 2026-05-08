@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"sync"
 )
 
 type IDRACJob struct {
@@ -27,14 +29,31 @@ func (c *Client) GetJobs() ([]IDRACJob, error) {
 	if err := c.get("/Managers/iDRAC.Embedded.1/Jobs", &col); err != nil {
 		return nil, err
 	}
-	var jobs []IDRACJob
-	for _, ref := range col.Members {
-		var j IDRACJob
-		if err := c.get(stripBaseURL(ref.ID), &j); err == nil {
-			jobs = append(jobs, j)
+	// Fetch each job in parallel — iDRAC fleets can have dozens of historical jobs,
+	// and serial fetches blow past the 30s HTTP timeout.
+	jobs := make([]IDRACJob, len(col.Members))
+	var wg sync.WaitGroup
+	for i, ref := range col.Members {
+		wg.Add(1)
+		go func(i int, path string) {
+			defer wg.Done()
+			var j IDRACJob
+			if err := c.get(path, &j); err == nil {
+				jobs[i] = j
+			}
+		}(i, stripBaseURL(ref.ID))
+	}
+	wg.Wait()
+	// Strip out failed fetches (zero-value structs).
+	out := jobs[:0]
+	for _, j := range jobs {
+		if j.ID != "" {
+			out = append(out, j)
 		}
 	}
-	return jobs, nil
+	// Most-recently-started first.
+	sort.Slice(out, func(i, j int) bool { return out[i].StartTime > out[j].StartTime })
+	return out, nil
 }
 
 func (c *Client) GetJob(jid string) (*IDRACJob, error) {
