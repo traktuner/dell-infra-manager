@@ -20,6 +20,7 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 	storage := NewStorageHandler(db)
 	eventlog := NewEventLogHandler(db)
 	jobs := NewJobsHandler(db, hub)
+	console := NewConsoleHandler(db)
 
 	api := r.Group("/api/v1")
 	{
@@ -70,6 +71,9 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		api.GET("/servers/:id/jobs/idrac", jobs.GetIDRACJobs)    // live iDRAC job queue
 		api.DELETE("/servers/:id/jobs/:jid", jobs.DeleteJob)
 		api.DELETE("/servers/:id/jobs", jobs.ClearAllJobs)
+
+		// Console (SSH SOL proxy over WebSocket)
+		api.GET("/servers/:id/console", console.Connect)
 
 		// Global views
 		api.GET("/jobs", jobs.GetAllJobs)

@@ -23,16 +23,17 @@
 	import FirmwareTable from '$lib/components/FirmwareTable.svelte';
 	import BiosAttributeEditor from '$lib/components/BiosAttributeEditor.svelte';
 	import VirtualMediaPanel from '$lib/components/VirtualMediaPanel.svelte';
+	import ConsolePanel from '$lib/components/ConsolePanel.svelte';
 	import { onMount } from 'svelte';
 	import {
 		Thermometer, Zap, HardDrive, FileText, Cpu, Wind, Database,
 		Trash2, ChevronLeft, ChevronRight, RefreshCw, Search, Clock,
-		AlertCircle, Settings, Disc, ListChecks
+		AlertCircle, Settings, Disc, ListChecks, SquareTerminal
 	} from '@lucide/svelte';
 
 	const id = $derived(page.params.id);
 
-	type TabKey = 'overview' | 'storage' | 'eventlog' | 'firmware' | 'bios' | 'virtualmedia' | 'jobs';
+	type TabKey = 'overview' | 'storage' | 'eventlog' | 'firmware' | 'bios' | 'virtualmedia' | 'jobs' | 'console';
 
 	let server = $state<Server | null>(null);
 	let cache = $state<ServerCache | null>(null);
@@ -272,7 +273,8 @@
 		{ key: 'bios', label: 'BIOS', icon: Settings },
 		{ key: 'virtualmedia', label: 'Virtual Media', icon: Disc },
 		{ key: 'eventlog', label: 'Event Log', icon: FileText },
-		{ key: 'jobs', label: 'iDRAC Jobs', icon: ListChecks }
+		{ key: 'jobs', label: 'iDRAC Jobs', icon: ListChecks },
+		{ key: 'console', label: 'Console', icon: SquareTerminal }
 	];
 </script>
 
@@ -741,6 +743,13 @@
 						<JobQueue jobs={localJobs} ondelete={load} />
 					</div>
 				</div>
+			</div>
+		{/if}
+
+		<!-- Console tab — full-height SSH SOL terminal -->
+		{#if tab === 'console'}
+			<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden" style="height: 600px;">
+				<ConsolePanel serverId={id} />
 			</div>
 		{/if}
 

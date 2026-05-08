@@ -9,6 +9,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 )
 
 type CatalogComponent struct {
@@ -134,6 +137,29 @@ func DownloadCatalogIfModified(catalogURL, cachePath string) (bool, error) {
 	return true, nil
 }
 
+// openCatalogXML opens cachePath, decompresses it and returns an xml.Decoder
+// whose input is transcoded to UTF-8.
+//
+// Dell's catalog XML is declared as UTF-8 but historically ships bytes from
+// Windows-1252 (e.g. "®" = 0xAE in component display names). Go's xml package
+// rejects any byte that is not valid UTF-8, so we pipe the decompressed stream
+// through a Windows-1252 → UTF-8 transcoder. Windows-1252 is a strict superset
+// of Latin-1 and maps every byte, so this is safe even for truly UTF-8 content.
+func openCatalogXML(cachePath string) (*os.File, *gzip.Reader, *xml.Decoder, error) {
+	f, err := os.Open(cachePath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		f.Close()
+		return nil, nil, nil, err
+	}
+	transcoded := transform.NewReader(gz, charmap.Windows1252.NewDecoder())
+	dec := xml.NewDecoder(transcoded)
+	return f, gz, dec, nil
+}
+
 // ReadCatalogInfo returns the dateTime/version metadata without parsing every
 // SoftwareComponent — cheap to call for status display.
 func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
@@ -150,9 +176,11 @@ func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 	}
 	defer gz.Close()
 
+	transcoded := transform.NewReader(gz, charmap.Windows1252.NewDecoder())
+
 	// We only want the root element's attributes — stream until we see it,
 	// then bail. Avoids parsing the (multi-MB) component list.
-	dec := xml.NewDecoder(gz)
+	dec := xml.NewDecoder(transcoded)
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -178,20 +206,15 @@ func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 
 // LoadCatalog parses the gzipped XML catalog and returns all components.
 func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
-	f, err := os.Open(cachePath)
+	f, gz, dec, err := openCatalogXML(cachePath)
 	if err != nil {
 		return nil, fmt.Errorf("open catalog: %w", err)
 	}
+	defer gz.Close()
 	defer f.Close()
 
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, fmt.Errorf("decompress catalog: %w", err)
-	}
-	defer gz.Close()
-
 	var cat catalog
-	if err := xml.NewDecoder(gz).Decode(&cat); err != nil {
+	if err := dec.Decode(&cat); err != nil {
 		return nil, fmt.Errorf("parse catalog XML: %w", err)
 	}
 

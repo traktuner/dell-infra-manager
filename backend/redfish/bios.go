@@ -28,8 +28,8 @@ type BiosRegistryAttribute struct {
 	Type          string        `json:"Type"`
 	ReadOnly      bool          `json:"ReadOnly"`
 	Value         []EnumValue   `json:"Value,omitempty"` // For Enumeration type
-	LowerBound    *int          `json:"LowerBound,omitempty"`
-	UpperBound    *int          `json:"UpperBound,omitempty"`
+	LowerBound    *int64        `json:"LowerBound,omitempty"`
+	UpperBound    *uint64       `json:"UpperBound,omitempty"`
 }
 
 type EnumValue struct {
