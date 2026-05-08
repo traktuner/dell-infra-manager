@@ -3,16 +3,18 @@ package models
 import "time"
 
 type Server struct {
-	ID        string    `db:"id"         json:"id"`
-	Name      string    `db:"name"       json:"name"`
-	Hostname  string    `db:"hostname"   json:"hostname"`
-	Port      int       `db:"port"       json:"port"`
-	Username  string    `db:"username"   json:"username"`
-	Password  string    `db:"password"   json:"-"`
-	TLSVerify bool      `db:"tls_verify" json:"tls_verify"`
-	Tags      string    `db:"tags"       json:"tags"` // JSON array string
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	ID          string    `db:"id"           json:"id"`
+	Name        string    `db:"name"         json:"name"`
+	Hostname    string    `db:"hostname"     json:"hostname"`
+	Port        int       `db:"port"         json:"port"`
+	Username    string    `db:"username"     json:"username"`
+	Password    string    `db:"password"     json:"-"`
+	TLSVerify   bool      `db:"tls_verify"   json:"tls_verify"`
+	Tags        string    `db:"tags"         json:"tags"` // JSON array string
+	VNCPassword *string   `db:"vnc_password" json:"-"`   // AES-256-GCM encrypted
+	VNCPort     int       `db:"vnc_port"     json:"vnc_port"`
+	CreatedAt   time.Time `db:"created_at"   json:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"   json:"updated_at"`
 }
 
 type ServerCache struct {

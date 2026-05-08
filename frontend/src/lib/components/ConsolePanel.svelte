@@ -1,5 +1,16 @@
 <script lang="ts">
+	/**
+	 * ConsolePanel — KVM-Console via noVNC (primary) mit SSH/SOL Fallback.
+	 *
+	 * Ablauf beim Öffnen des Tabs:
+	 *  1. POST /vnc/enable → iDRAC aktiviert VNC via Redfish
+	 *  2. Erfolg → noVNC verbindet sich über WS-Proxy auf iDRAC:5901
+	 *  3. Fehler (kein Enterprise, VNC disabled etc.) → SSH/SOL via xterm.js
+	 */
 	import { onMount, onDestroy } from 'svelte';
+	import { api } from '$lib/api';
+
+	// xterm (SSH/SOL fallback)
 	import { Terminal } from '@xterm/xterm';
 	import { FitAddon } from '@xterm/addon-fit';
 	import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -8,163 +19,312 @@
 	type Props = { serverId: string | undefined };
 	let { serverId }: Props = $props();
 
-	let container: HTMLDivElement;
+	// ── State ────────────────────────────────────────────────────────────────
+	type Mode    = 'loading' | 'vnc' | 'sol' | 'error';
+	type ConnSt  = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+	let mode      = $state<Mode>('loading');
+	let connState = $state<ConnSt>('connecting');
+	let statusMsg = $state('');
+	let vncToken  = $state('');
+
+	// ── DOM refs ─────────────────────────────────────────────────────────────
+	let vncContainer: HTMLDivElement;
+	let solContainer: HTMLDivElement;
+
+	// ── noVNC (loaded dynamically — SSR-safe) ────────────────────────────────
+	let RFB: any = null;       // noVNC RFB class
+	let rfb: any = null;       // active RFB instance
+
+	// ── xterm (SOL fallback) ─────────────────────────────────────────────────
 	let term: Terminal | null = null;
 	let fitAddon: FitAddon | null = null;
-	let ws: WebSocket | null = null;
+	let solWS: WebSocket | null = null;
 	let resizeObserver: ResizeObserver | null = null;
-	let status = $state<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
-	let statusMsg = $state('');
 
-	function buildWsUrl(id: string | undefined): string {
-		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		return `${proto}//${location.host}/api/v1/servers/${id ?? ''}/console`;
-	}
-
-	function connect() {
+	// ── Lifecycle ────────────────────────────────────────────────────────────
+	onMount(async () => {
 		if (!serverId) return;
-		status = 'connecting';
-		statusMsg = '';
 
-		ws = new WebSocket(buildWsUrl(serverId));
-		ws.binaryType = 'arraybuffer';
+		// Load noVNC dynamically (it uses browser APIs, can't run in SSR).
+		try {
+			// @ts-ignore — noVNC has no TypeScript declarations
+			const mod = await import('@novnc/novnc/core/rfb.js');
+			RFB = mod.default;
+		} catch (e) {
+			console.warn('noVNC load failed, will use SOL only:', e);
+		}
 
-		ws.onopen = () => {
-			status = 'connected';
-			// Send current terminal size so the PTY is sized correctly from the start.
-			sendResize();
-		};
+		await startConsole();
+	});
 
-		ws.onmessage = (e) => {
-			if (!term) return;
-			if (e.data instanceof ArrayBuffer) {
-				term.write(new Uint8Array(e.data));
-			} else {
-				// Text frame — e.g. error messages streamed before PTY is up.
-				term.write(e.data as string);
+	onDestroy(() => {
+		teardownVNC();
+		teardownSOL();
+	});
+
+	// ── Primary path: VNC ────────────────────────────────────────────────────
+	async function startConsole() {
+		mode = 'loading';
+		connState = 'connecting';
+		statusMsg = 'Enabling VNC on iDRAC…';
+
+		try {
+			const res = await api.vnc.enable(serverId!);
+
+			if (res.fallback === 'sol' || !RFB) {
+				// Redfish failed or noVNC unavailable → fall through to SOL
+				statusMsg = res.error ?? 'VNC unavailable';
+				startSOL();
+				return;
 			}
-		};
 
-		ws.onclose = (e) => {
-			status = 'disconnected';
-			statusMsg = e.reason || `Code ${e.code}`;
-			term?.write('\r\n\x1b[33m[Session closed]\x1b[0m\r\n');
-		};
-
-		ws.onerror = () => {
-			status = 'error';
-			statusMsg = 'WebSocket error';
-		};
+			vncToken = res.token;
+			mode = 'vnc';
+			// Give Svelte a tick to render vncContainer before mounting noVNC.
+			await tick();
+			startVNC(res.token);
+		} catch (e) {
+			// Network error calling /vnc/enable → fall back to SOL
+			statusMsg = (e as Error).message;
+			startSOL();
+		}
 	}
 
-	function sendResize() {
-		if (ws?.readyState !== WebSocket.OPEN || !term) return;
-		ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+	function startVNC(token: string) {
+		if (!vncContainer || !RFB) return;
+		teardownVNC();
+
+		const url = api.vnc.proxyUrl(serverId!, token);
+
+		rfb = new RFB(vncContainer, url, {
+			// noVNC will handle the VNC password via RFB authentication.
+			// Our backend proxy is transparent — RFB auth goes through unchanged.
+			wsProtocols: ['binary'],
+		});
+
+		// Scaling: scale the canvas to fill the container automatically.
+		rfb.scaleViewport = true;
+		rfb.resizeSession = true;   // send DesktopSize pseudo-encoding to iDRAC
+		rfb.clipViewport  = false;
+
+		rfb.addEventListener('connect', () => {
+			connState = 'connected';
+			statusMsg  = '';
+		});
+
+		rfb.addEventListener('disconnect', (e: any) => {
+			connState = 'disconnected';
+			statusMsg = e.detail?.reason ?? '';
+		});
+
+		rfb.addEventListener('credentialsrequired', () => {
+			// iDRAC VNC requires the password we set via Redfish.
+			// Fetch it from backend and provide it to noVNC.
+			fetchVNCPassword().then((pw) => {
+				if (pw) rfb.sendCredentials({ password: pw });
+			});
+		});
+
+		rfb.addEventListener('securityfailure', () => {
+			// Wrong password — the stored password may be stale.
+			// Reset it so next enable() will re-configure iDRAC.
+			api.vnc.reset(serverId!);
+			connState = 'error';
+			statusMsg  = 'VNC auth failed — click Reconnect to re-configure';
+		});
 	}
 
-	function disconnect() {
-		ws?.close();
-		ws = null;
+	async function fetchVNCPassword(): Promise<string | null> {
+		// The frontend never stores the plaintext VNC password.
+		// We ask the backend to decrypt it and return it once (token required).
+		try {
+			const res = await fetch(
+				`/api/v1/servers/${serverId}/vnc/password?token=${encodeURIComponent(vncToken)}`
+			);
+			if (!res.ok) return null;
+			const { password } = await res.json();
+			return password as string;
+		} catch {
+			return null;
+		}
 	}
 
-	function reconnect() {
-		disconnect();
-		term?.reset();
-		connect();
+	function teardownVNC() {
+		try { rfb?.disconnect(); } catch {}
+		rfb = null;
 	}
 
-	onMount(() => {
+	// ── Fallback path: SSH/SOL ───────────────────────────────────────────────
+	function startSOL() {
+		mode = 'sol';
+		connState = 'connecting';
+
+		// Wait for Svelte to render solContainer.
+		setTimeout(() => initSOLTerminal(), 0);
+	}
+
+	function initSOLTerminal() {
+		if (!solContainer) return;
+
 		term = new Terminal({
 			theme: {
-				background: '#09090b',   // zinc-950
-				foreground: '#d4d4d8',   // zinc-300
-				cursor:     '#a1a1aa',   // zinc-400
-				selectionBackground: '#3f3f46', // zinc-700
-				black:   '#18181b',
-				red:     '#f87171',
-				green:   '#4ade80',
-				yellow:  '#facc15',
-				blue:    '#60a5fa',
-				magenta: '#c084fc',
-				cyan:    '#22d3ee',
-				white:   '#f4f4f5',
-				brightBlack:   '#3f3f46',
-				brightRed:     '#fca5a5',
-				brightGreen:   '#86efac',
-				brightYellow:  '#fde68a',
-				brightBlue:    '#93c5fd',
-				brightMagenta: '#d8b4fe',
-				brightCyan:    '#67e8f9',
-				brightWhite:   '#fafafa',
+				background: '#09090b',
+				foreground: '#d4d4d8',
+				cursor:     '#a1a1aa',
+				selectionBackground: '#3f3f46',
 			},
-			fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, monospace',
+			fontFamily: '"JetBrains Mono", "Fira Code", Menlo, monospace',
 			fontSize: 13,
 			lineHeight: 1.4,
 			cursorBlink: true,
-			allowProposedApi: true,
 			scrollback: 5000,
 		});
 
 		fitAddon = new FitAddon();
 		term.loadAddon(fitAddon);
 		term.loadAddon(new WebLinksAddon());
-		term.open(container);
+		term.open(solContainer);
 		fitAddon.fit();
 
-		// Forward keystrokes to the SSH session.
 		term.onData((data) => {
-			if (ws?.readyState === WebSocket.OPEN) {
-				ws.send(new TextEncoder().encode(data));
+			if (solWS?.readyState === WebSocket.OPEN) {
+				solWS.send(new TextEncoder().encode(data));
 			}
 		});
 
-		// Notify the backend when the terminal is resized.
 		resizeObserver = new ResizeObserver(() => {
 			fitAddon?.fit();
-			sendResize();
+			sendSOLResize();
 		});
-		resizeObserver.observe(container);
+		resizeObserver.observe(solContainer);
 
-		connect();
-	});
+		connectSOLWebSocket();
+	}
 
-	onDestroy(() => {
+	function connectSOLWebSocket() {
+		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		solWS = new WebSocket(`${proto}//${location.host}/api/v1/servers/${serverId}/console`);
+		solWS.binaryType = 'arraybuffer';
+
+		solWS.onopen = () => {
+			connState = 'connected';
+			sendSOLResize();
+		};
+		solWS.onmessage = (e) => {
+			if (!term) return;
+			if (e.data instanceof ArrayBuffer) term.write(new Uint8Array(e.data));
+			else term.write(e.data as string);
+		};
+		solWS.onclose  = (e) => { connState = 'disconnected'; statusMsg = e.reason || ''; };
+		solWS.onerror  = ()  => { connState = 'error'; statusMsg = 'WebSocket error'; };
+	}
+
+	function sendSOLResize() {
+		if (solWS?.readyState !== WebSocket.OPEN || !term) return;
+		solWS.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+	}
+
+	function teardownSOL() {
 		resizeObserver?.disconnect();
-		disconnect();
+		solWS?.close();
+		solWS = null;
 		term?.dispose();
-	});
+		term = null;
+	}
+
+	// ── UI actions ───────────────────────────────────────────────────────────
+	function reconnect() {
+		teardownVNC();
+		teardownSOL();
+		term?.reset?.();
+		startConsole();
+	}
+
+	function sendCtrlAltDel() {
+		rfb?.sendCtrlAltDel();
+	}
+
+	// Svelte tick helper (not imported from svelte — just a promise for nextTick).
+	function tick(): Promise<void> {
+		return new Promise((r) => setTimeout(r, 0));
+	}
 </script>
 
-<div class="flex flex-col h-full min-h-0">
-	<!-- Status bar -->
-	<div class="flex items-center justify-between px-4 py-2 bg-zinc-950 border-b border-zinc-800 shrink-0">
+<div class="flex flex-col h-full min-h-0 bg-zinc-950">
+
+	<!-- ── Status bar ───────────────────────────────────────────────────── -->
+	<div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 shrink-0">
 		<div class="flex items-center gap-2 text-xs">
-			{#if status === 'connecting'}
+			{#if mode === 'loading'}
+				<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+				<span class="text-zinc-400">{statusMsg || 'Connecting…'}</span>
+
+			{:else if connState === 'connecting'}
 				<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
 				<span class="text-zinc-400">Connecting…</span>
-			{:else if status === 'connected'}
+
+			{:else if connState === 'connected'}
 				<span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-				<span class="text-zinc-400">Connected · iDRAC SSH</span>
-			{:else if status === 'disconnected'}
+				{#if mode === 'vnc'}
+					<span class="text-zinc-400">KVM · VNC</span>
+				{:else}
+					<span class="text-zinc-500">SSH/SOL</span>
+					<span class="text-zinc-700">·</span>
+					<span class="text-zinc-600 text-xs">VNC nicht verfügbar{statusMsg ? `: ${statusMsg}` : ''}</span>
+				{/if}
+
+			{:else if connState === 'disconnected'}
 				<span class="w-2 h-2 rounded-full bg-zinc-600"></span>
-				<span class="text-zinc-500">Disconnected{statusMsg ? ` — ${statusMsg}` : ''}</span>
+				<span class="text-zinc-500">Getrennt{statusMsg ? ` — ${statusMsg}` : ''}</span>
+
 			{:else}
 				<span class="w-2 h-2 rounded-full bg-red-500"></span>
-				<span class="text-red-400">{statusMsg || 'Error'}</span>
+				<span class="text-red-400">{statusMsg || 'Fehler'}</span>
 			{/if}
 		</div>
-		<div class="flex items-center gap-3 text-xs text-zinc-600">
-			<span>Type <kbd class="px-1 py-0.5 bg-zinc-800 rounded text-zinc-400">console com2</kbd> for Serial-over-LAN</span>
+
+		<div class="flex items-center gap-2">
+			{#if mode === 'vnc' && connState === 'connected'}
+				<button
+					onclick={sendCtrlAltDel}
+					class="px-2 py-1 text-xs rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+					title="Ctrl+Alt+Del an Server senden"
+				>Ctrl+Alt+Del</button>
+			{/if}
+			{#if mode === 'sol' && connState === 'connected'}
+				<span class="text-xs text-zinc-600">
+					Tipp: <kbd class="px-1 py-0.5 bg-zinc-800 rounded text-zinc-400">console com2</kbd> für Serial-over-LAN
+				</span>
+			{/if}
 			<button
 				onclick={reconnect}
-				class="px-2 py-1 rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+				class="px-2 py-1 text-xs rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
 			>Reconnect</button>
 		</div>
 	</div>
 
-	<!-- Terminal -->
-	<div
-		bind:this={container}
-		class="flex-1 min-h-0 p-2 bg-zinc-950"
-	></div>
+	<!-- ── VNC canvas (noVNC mounts here) ────────────────────────────────── -->
+	{#if mode === 'vnc' || mode === 'loading'}
+		<div
+			bind:this={vncContainer}
+			class="flex-1 min-h-0 {mode === 'loading' ? 'hidden' : ''}"
+			style="cursor: default;"
+		></div>
+	{/if}
+
+	<!-- ── SSH/SOL xterm fallback ─────────────────────────────────────────── -->
+	{#if mode === 'sol'}
+		<div
+			bind:this={solContainer}
+			class="flex-1 min-h-0 p-2"
+		></div>
+	{/if}
+
+	<!-- ── Loading spinner ───────────────────────────────────────────────── -->
+	{#if mode === 'loading'}
+		<div class="flex-1 flex items-center justify-center">
+			<div class="text-zinc-600 text-sm animate-pulse">{statusMsg || 'Verbinde…'}</div>
+		</div>
+	{/if}
 </div>

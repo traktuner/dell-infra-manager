@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
+	"golang.org/x/net/html/charset"
 )
 
 type CatalogComponent struct {
@@ -137,50 +136,72 @@ func DownloadCatalogIfModified(catalogURL, cachePath string) (bool, error) {
 	return true, nil
 }
 
-// openCatalogXML opens cachePath, decompresses it and returns an xml.Decoder
-// whose input is transcoded to UTF-8.
+// openCatalogXML opens cachePath, decompresses it (gzip or plain), and returns
+// an xml.Decoder that handles any encoding declared in the XML header.
 //
-// Dell's catalog XML is declared as UTF-8 but historically ships bytes from
-// Windows-1252 (e.g. "®" = 0xAE in component display names). Go's xml package
-// rejects any byte that is not valid UTF-8, so we pipe the decompressed stream
-// through a Windows-1252 → UTF-8 transcoder. Windows-1252 is a strict superset
-// of Latin-1 and maps every byte, so this is safe even for truly UTF-8 content.
-func openCatalogXML(cachePath string) (*os.File, *gzip.Reader, *xml.Decoder, error) {
+// Two failure modes are handled gracefully:
+//  1. File is plain XML (no gzip) — happens when the old downloader let Go's
+//     HTTP stack transparently decompress a Content-Encoding:gzip response.
+//     We detect this by trying gzip.NewReader and falling back on error.
+//  2. Non-UTF-8 encoding declaration (e.g. ISO-8859-1, Windows-1252) — handled
+//     by charset.NewReaderLabel which reads the <?xml encoding="..."?> header
+//     and wraps the reader in the correct transcoder automatically.
+//
+// Returns (file, closer, decoder, error). The caller must call closer() when done.
+func openCatalogXML(cachePath string) (*os.File, func(), *xml.Decoder, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		f.Close()
-		return nil, nil, nil, err
+
+	var xmlReader io.Reader
+	var gzCloser io.Closer
+
+	gz, gzErr := gzip.NewReader(f)
+	if gzErr != nil {
+		// Not a gzip file — treat as plain XML.
+		if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+			f.Close()
+			return nil, nil, nil, fmt.Errorf("seek: %w", seekErr)
+		}
+		xmlReader = f
+	} else {
+		xmlReader = gz
+		gzCloser = gz
 	}
-	transcoded := transform.NewReader(gz, charmap.Windows1252.NewDecoder())
-	dec := xml.NewDecoder(transcoded)
-	return f, gz, dec, nil
+
+	closer := func() {
+		if gzCloser != nil {
+			gzCloser.Close()
+		}
+		f.Close()
+	}
+
+	dec := xml.NewDecoder(xmlReader)
+	// CharsetReader lets the XML decoder handle any encoding declaration in the
+	// <?xml?> header — UTF-8, ISO-8859-1, Windows-1252, etc. — without us having
+	// to know in advance what Dell ships.
+	dec.CharsetReader = charset.NewReaderLabel
+
+	return f, closer, dec, nil
 }
 
 // ReadCatalogInfo returns the dateTime/version metadata without parsing every
 // SoftwareComponent — cheap to call for status display.
 func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
-	f, err := os.Open(cachePath)
+	// Stat before opening so we can record the file mtime as fetched_at.
+	stat, _ := os.Stat(cachePath)
+
+	f, closer, dec, err := openCatalogXML(cachePath)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	stat, _ := f.Stat()
+	defer closer()
+	_ = f // f kept alive via closer
 
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, err
-	}
-	defer gz.Close()
-
-	transcoded := transform.NewReader(gz, charmap.Windows1252.NewDecoder())
-
-	// We only want the root element's attributes — stream until we see it,
-	// then bail. Avoids parsing the (multi-MB) component list.
-	dec := xml.NewDecoder(transcoded)
+	// Stream tokens until we hit the root start element — it carries the
+	// dateTime and version attributes. Bail immediately after to avoid
+	// reading the entire (multi-MB) component list.
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -189,10 +210,10 @@ func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 		if se, ok := tok.(xml.StartElement); ok {
 			info := &CatalogInfo{}
 			for _, a := range se.Attr {
-				if a.Name.Local == "dateTime" {
+				switch a.Name.Local {
+				case "dateTime":
 					info.DateTime = a.Value
-				}
-				if a.Name.Local == "version" {
+				case "version":
 					info.Version = a.Value
 				}
 			}
@@ -204,14 +225,13 @@ func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 	}
 }
 
-// LoadCatalog parses the gzipped XML catalog and returns all components.
+// LoadCatalog parses the catalog and returns all components.
 func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
-	f, gz, dec, err := openCatalogXML(cachePath)
+	_, closer, dec, err := openCatalogXML(cachePath)
 	if err != nil {
 		return nil, fmt.Errorf("open catalog: %w", err)
 	}
-	defer gz.Close()
-	defer f.Close()
+	defer closer()
 
 	var cat catalog
 	if err := dec.Decode(&cat); err != nil {

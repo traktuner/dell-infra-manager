@@ -21,6 +21,7 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 	eventlog := NewEventLogHandler(db)
 	jobs := NewJobsHandler(db, hub)
 	console := NewConsoleHandler(db)
+	vnc := NewVNCHandler(db)
 
 	api := r.Group("/api/v1")
 	{
@@ -72,8 +73,15 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		api.DELETE("/servers/:id/jobs/:jid", jobs.DeleteJob)
 		api.DELETE("/servers/:id/jobs", jobs.ClearAllJobs)
 
-		// Console (SSH SOL proxy over WebSocket)
+		// Console: SSH/SOL (fallback)
 		api.GET("/servers/:id/console", console.Connect)
+
+		// Console: VNC/KVM via noVNC
+		api.GET("/servers/:id/vnc/info",     vnc.Info)
+		api.POST("/servers/:id/vnc/enable",  vnc.Enable)
+		api.GET("/servers/:id/vnc/proxy",   vnc.Proxy)    // WebSocket upgrade
+		api.GET("/servers/:id/vnc/password", vnc.Password) // plaintext pw for RFB auth
+		api.POST("/servers/:id/vnc/reset",  vnc.Reset)
 
 		// Global views
 		api.GET("/jobs", jobs.GetAllJobs)

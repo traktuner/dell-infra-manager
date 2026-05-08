@@ -42,19 +42,34 @@ func Open(path string) (*sqlx.DB, error) {
 }
 
 func migrate(db *sqlx.DB) error {
+	// Ensure the migrations tracking table exists.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name TEXT PRIMARY KEY,
+		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
 	files, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
-		sql, err := migrations.ReadFile("migrations/" + f.Name())
+		name := f.Name()
+		var count int
+		db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, name).Scan(&count)
+		if count > 0 {
+			continue // already applied
+		}
+		sql, err := migrations.ReadFile("migrations/" + name)
 		if err != nil {
 			return err
 		}
 		if _, err := db.Exec(string(sql)); err != nil {
-			return fmt.Errorf("migration %s: %w", f.Name(), err)
+			return fmt.Errorf("migration %s: %w", name, err)
 		}
-		log.Printf("migration applied: %s", f.Name())
+		db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name)
+		log.Printf("migration applied: %s", name)
 	}
 	return nil
 }

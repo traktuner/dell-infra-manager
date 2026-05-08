@@ -746,9 +746,12 @@
 			</div>
 		{/if}
 
-		<!-- Console tab — full-height SSH SOL terminal -->
+		<!-- Console tab — fills remaining viewport height -->
 		{#if tab === 'console'}
-			<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden" style="height: 600px;">
+			<div
+				class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden"
+				style="height: calc(100vh - 220px); min-height: 480px;"
+			>
 				<ConsolePanel serverId={id} />
 			</div>
 		{/if}
