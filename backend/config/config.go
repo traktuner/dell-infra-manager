@@ -12,6 +12,17 @@ type Config struct {
 	Security SecurityConfig `mapstructure:"security"`
 	Polling  PollingConfig  `mapstructure:"polling"`
 	Dell     DellConfig     `mapstructure:"dell_catalog"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+}
+
+// AuthConfig wires the app to a reverse proxy that has already authenticated
+// the request (Traefik forward-auth, oauth2-proxy, Cloudflare Access, etc.).
+// We trust the upstream's identity headers and never do auth ourselves.
+type AuthConfig struct {
+	Enabled     bool   `mapstructure:"enabled"`      // false = open access (dev mode)
+	UserHeader  string `mapstructure:"user_header"`  // default "X-Auth-Request-Email"
+	NameHeader  string `mapstructure:"name_header"`  // optional pretty name
+	GroupHeader string `mapstructure:"group_header"` // optional, comma-separated
 }
 
 type ServerConfig struct {
@@ -82,4 +93,8 @@ func setDefaults() {
 	viper.SetDefault("polling.sse_reconnect_max_retries", 5)
 	viper.SetDefault("dell_catalog.url", "https://downloads.dell.com/catalog/Catalog.xml.gz")
 	viper.SetDefault("dell_catalog.cache_path", "/data/catalog.xml.gz")
+	viper.SetDefault("auth.enabled", false)
+	viper.SetDefault("auth.user_header", "X-Auth-Request-Email")
+	viper.SetDefault("auth.name_header", "X-Auth-Request-User")
+	viper.SetDefault("auth.group_header", "X-Auth-Request-Groups")
 }

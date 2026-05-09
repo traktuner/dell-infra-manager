@@ -113,12 +113,20 @@ func (h *FirmwareHandler) GetInventory(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", []byte(*val))
 }
 
+// AvailableUpdate is one row of catalog comparison data — always present for
+// every component that we successfully matched against the catalog, regardless
+// of whether the installed version is current or outdated.
+//
+// Outdated == false means "we have catalog data for this component and the
+// installed version equals the catalog version" — useful so the UI can show
+// the release date instead of just "—".
 type AvailableUpdate struct {
 	Component        string `json:"component"`
 	InstalledVersion string `json:"installed_version"`
 	AvailableVersion string `json:"available_version"`
 	ReleaseDate      string `json:"release_date"`
 	CatalogPath      string `json:"catalog_path"`
+	Outdated         bool   `json:"outdated"`
 }
 
 func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
@@ -192,6 +200,9 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 		}
 	}
 
+	// Emit a row for every successfully-matched component (outdated AND
+	// up-to-date). The Outdated flag drives UI rendering. Components without a
+	// catalog match are not included at all — frontend renders them as "—".
 	updates := make([]AvailableUpdate, 0)
 	for _, inst := range installed {
 		if inst.SoftwareId == "" {
@@ -201,15 +212,13 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 		if !ok {
 			continue
 		}
-		if cat.Version == inst.Version {
-			continue
-		}
 		updates = append(updates, AvailableUpdate{
 			Component:        inst.Name,
 			InstalledVersion: inst.Version,
 			AvailableVersion: cat.Version,
 			ReleaseDate:      cat.ReleaseDate,
 			CatalogPath:      cat.Path,
+			Outdated:         cat.Version != inst.Version,
 		})
 	}
 	c.JSON(http.StatusOK, updates)

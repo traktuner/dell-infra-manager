@@ -92,6 +92,7 @@ export interface AvailableUpdate {
 	available_version: string;
 	release_date: string;
 	catalog_path: string;
+	outdated: boolean;
 }
 
 export interface Job {

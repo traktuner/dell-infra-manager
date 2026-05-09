@@ -13,12 +13,14 @@
 	let { serverId, components, updates, onupdate }: Props = $props();
 
 	const updateMap = $derived(new Map(updates.map((u) => [u.component, u])));
+	const outdatedCount = $derived(updates.filter((u) => u.outdated).length);
 
 	let showAll = $state(false);
 	let queuing = $state<Set<string>>(new Set());
 
+	// "Show outdated only" filter — uses the Outdated flag, not just map presence.
 	const visibleComponents = $derived(
-		showAll ? components : components.filter((c) => updateMap.has(c.Name))
+		showAll ? components : components.filter((c) => updateMap.get(c.Name)?.outdated)
 	);
 
 	async function queueUpdate(comp: string, catalogPath: string, version: string) {
@@ -41,12 +43,12 @@
 <div class="space-y-3">
 	<div class="flex items-center justify-between">
 		<div class="text-xs text-zinc-500">
-			{#if updates.length === 0}
+			{#if outdatedCount === 0}
 				<span class="flex items-center gap-1.5 text-emerald-500">
 					<Check class="w-3.5 h-3.5" /> All firmware up to date ({components.length} components)
 				</span>
 			{:else}
-				<span class="text-amber-400">{updates.length} update{updates.length > 1 ? 's' : ''} available</span>
+				<span class="text-amber-400">{outdatedCount} update{outdatedCount > 1 ? 's' : ''} available</span>
 				<span class="text-zinc-600"> / {components.length} components total</span>
 			{/if}
 		</div>
@@ -64,7 +66,7 @@
 
 	{#if visibleComponents.length === 0}
 		<div class="text-zinc-600 text-sm py-6 text-center">
-			{updates.length === 0 ? 'No outdated components.' : 'No firmware data — run "Check Updates" first.'}
+			{outdatedCount === 0 ? 'No outdated components.' : 'No firmware data — run "Check Updates" first.'}
 		</div>
 	{:else}
 		<div class="overflow-x-auto">
@@ -82,30 +84,33 @@
 				<tbody class="divide-y divide-zinc-800">
 					{#each visibleComponents as comp}
 						{@const upd = updateMap.get(comp.Name)}
-						<tr class="hover:bg-zinc-900/50 {upd ? 'bg-amber-500/5' : ''}">
+						{@const isOutdated = upd?.outdated ?? false}
+						<tr class="hover:bg-zinc-900/50 {isOutdated ? 'bg-amber-500/5' : ''}">
 							<td class="py-3 pr-4 text-zinc-200 font-medium">{comp.Name}</td>
 							<td class="py-3 pr-4 text-zinc-400 font-mono text-xs">{comp.Version}</td>
 							<td class="py-3 pr-4 font-mono text-xs">
 								{#if upd}
-									<span class="text-amber-400">{upd.available_version}</span>
+									<span class={isOutdated ? 'text-amber-400' : 'text-zinc-400'}>{upd.available_version}</span>
 								{:else}
-									<span class="text-zinc-600">—</span>
+									<span class="text-zinc-600" title="No matching entry in Dell catalog for this component">—</span>
 								{/if}
 							</td>
 							<td class="py-3 pr-4 text-zinc-500 text-xs whitespace-nowrap">
 								{upd?.release_date ?? '—'}
 							</td>
 							<td class="py-3 pr-4">
-								{#if upd}
+								{#if isOutdated}
 									<StatusBadge status="Warning" size="sm" />
-								{:else}
+								{:else if upd}
 									<span class="flex items-center gap-1 text-emerald-500 text-xs">
 										<Check class="w-3 h-3" /> Up to date
 									</span>
+								{:else}
+									<span class="text-xs text-zinc-600" title="Not in Dell catalog">Unknown</span>
 								{/if}
 							</td>
 							<td class="py-3">
-								{#if upd && comp.Updateable}
+								{#if isOutdated && comp.Updateable && upd}
 									<button
 										onclick={() => queueUpdate(comp.Name, upd.catalog_path, upd.available_version)}
 										disabled={queuing.has(comp.Name)}

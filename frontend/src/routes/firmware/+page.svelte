@@ -96,18 +96,25 @@
 		expanded = new Set();
 	}
 
+	// Backend now returns matched-AND-current entries too, so we filter by the
+	// `outdated` flag instead of just counting list length.
 	const totalOutdated = $derived(
-		[...updates.values()].reduce((acc, list) => acc + (list?.length ?? 0), 0)
+		[...updates.values()].reduce(
+			(acc, list) => acc + (list?.filter((u) => u.outdated).length ?? 0),
+			0
+		)
 	);
 
-	const serversWithUpdates = $derived(servers.filter((s) => (updates.get(s.id)?.length ?? 0) > 0));
+	const serversWithUpdates = $derived(
+		servers.filter((s) => (updates.get(s.id) ?? []).some((u) => u.outdated))
+	);
 
-	// All unique components that have updates available across the fleet,
-	// grouped so we can offer "Update <component> on all servers" bulk actions.
+	// Unique outdated components across the fleet, grouped for bulk-update.
 	const componentsWithUpdates = $derived.by(() => {
 		const map = new Map<string, { servers: Server[]; available_version: string; catalog_path: string }>();
 		for (const s of servers) {
 			for (const u of updates.get(s.id) ?? []) {
+				if (!u.outdated) continue;
 				const e = map.get(u.component);
 				if (e) {
 					e.servers.push(s);

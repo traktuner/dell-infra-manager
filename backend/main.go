@@ -14,6 +14,7 @@ import (
 	"github.com/dell-infra-manager/backend/config"
 	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/database"
+	"github.com/dell-infra-manager/backend/notifier"
 	"github.com/dell-infra-manager/backend/worker"
 )
 
@@ -45,12 +46,15 @@ func main() {
 	defer cancel()
 	go hub.Run(ctx)
 
+	// Notifier (SMTP) — settings live in DB, single instance reused everywhere.
+	notif := notifier.New(db)
+
 	// Background workers
-	pool := worker.New(db, hub, cfg)
+	pool := worker.New(db, hub, cfg, notif)
 	go pool.Run(ctx)
 
 	// HTTP router
-	router := api.NewRouter(db, hub, cfg, staticFiles)
+	router := api.NewRouter(db, hub, cfg, notif, staticFiles)
 
 	srv := &http.Server{
 		Addr:    cfg.Server.Host + ":" + cfg.Server.Port,

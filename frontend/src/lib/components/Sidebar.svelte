@@ -1,22 +1,40 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
+	import { api } from '$lib/api';
 	import {
 		LayoutDashboard,
 		Server,
 		HardDrive,
 		ListChecks,
 		Cpu,
-		ChevronRight
+		Settings,
+		ChevronRight,
+		User as UserIcon
 	} from '@lucide/svelte';
 
 	const nav = [
-		{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
-		{ href: '/servers', label: 'Servers', icon: Server },
-		{ href: '/firmware', label: 'Firmware', icon: HardDrive },
-		{ href: '/jobs', label: 'Jobs', icon: ListChecks }
+		{ href: '/',         label: 'Dashboard', icon: LayoutDashboard },
+		{ href: '/servers',  label: 'Servers',   icon: Server },
+		{ href: '/firmware', label: 'Firmware',  icon: HardDrive },
+		{ href: '/jobs',     label: 'Jobs',      icon: ListChecks },
+		{ href: '/settings', label: 'Settings',  icon: Settings }
 	];
 
 	const active = $derived(page.url.pathname);
+
+	let userEmail = $state<string | null>(null);
+	let authEnabled = $state(false);
+
+	onMount(async () => {
+		try {
+			const me = await api.auth.me();
+			authEnabled = me.auth_enabled;
+			userEmail = me.user.email;
+		} catch {
+			// /me failure shouldn't block UI
+		}
+	});
 </script>
 
 <aside class="w-56 shrink-0 flex flex-col bg-zinc-900 border-r border-zinc-800 min-h-screen">
@@ -49,7 +67,17 @@
 		{/each}
 	</nav>
 
-	<div class="px-5 py-3 border-t border-zinc-800 text-xs text-zinc-600">
-		Dell iDRAC Manager
+	<!-- User badge -->
+	<div class="px-3 py-3 border-t border-zinc-800">
+		{#if authEnabled && userEmail && userEmail !== 'anonymous'}
+			<div class="flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg bg-zinc-800/50" title={userEmail}>
+				<UserIcon class="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+				<span class="text-zinc-400 truncate">{userEmail}</span>
+			</div>
+		{:else}
+			<div class="text-xs text-zinc-600 px-2">
+				{authEnabled ? 'Not authenticated' : 'Auth disabled'}
+			</div>
+		{/if}
 	</div>
 </aside>

@@ -5,11 +5,12 @@ import (
 	"net/http"
 
 	"github.com/dell-infra-manager/backend/config"
+	"github.com/dell-infra-manager/backend/notifier"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
 
-func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gin.Engine {
+func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, n *notifier.Notifier, staticFiles fs.FS) *gin.Engine {
 	r := gin.Default()
 
 	servers := NewServerHandler(db, hub)
@@ -22,9 +23,12 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 	jobs := NewJobsHandler(db, hub)
 	console := NewConsoleHandler(db)
 	vnc := NewVNCHandler(db)
+	settings := NewSettingsHandler(n)
 
 	api := r.Group("/api/v1")
+	api.Use(AuthMiddleware(cfg.Auth))
 	{
+		api.GET("/me", MeHandler(cfg.Auth))
 		// Server CRUD
 		api.GET("/servers", servers.List)
 		api.POST("/servers", servers.Create)
@@ -82,6 +86,11 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		api.GET("/servers/:id/vnc/proxy",    vnc.Proxy)    // WebSocket TCP-tunnel
 		api.GET("/servers/:id/vnc/password", vnc.Password) // RFB auth password
 		api.POST("/servers/:id/vnc/reset",    vnc.Reset)   // force re-configure on next /enable
+
+		// Settings (SMTP / notifications)
+		api.GET("/settings/notifications",   settings.GetNotifications)
+		api.PUT("/settings/notifications",   settings.UpdateNotifications)
+		api.POST("/settings/notifications/test", settings.TestNotifications)
 
 		// Global views
 		api.GET("/jobs", jobs.GetAllJobs)

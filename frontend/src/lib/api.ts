@@ -150,5 +150,39 @@ export const api = {
 			return `${proto}//${location.host}/api/v1/servers/${id}/vnc/proxy?token=${encodeURIComponent(token)}`;
 		}
 	},
-	dashboard: () => request<Dashboard>('GET', '/dashboard')
+	dashboard: () => request<Dashboard>('GET', '/dashboard'),
+	auth: {
+		me: () =>
+			request<{
+				user: { email: string; name?: string; groups?: string[] };
+				auth_enabled: boolean;
+			}>('GET', '/me')
+	},
+	settings: {
+		getNotifications: () => request<NotificationSettings>('GET', '/settings/notifications'),
+		updateNotifications: (data: NotificationSettingsInput) =>
+			request<{ ok: boolean }>('PUT', '/settings/notifications', data),
+		testNotifications: (data: NotificationSettingsInput) =>
+			request<{ ok: boolean }>('POST', '/settings/notifications/test', data)
+	}
+};
+
+export type NotificationSettings = {
+	enabled: boolean;
+	smtp_host: string;
+	smtp_port: number;
+	smtp_username: string;
+	smtp_from: string;
+	smtp_tls: 'none' | 'starttls' | 'tls';
+	recipients: string;
+	on_server_offline: boolean;
+	on_health_critical: boolean;
+	on_job_failed: boolean;
+	on_firmware_updates: boolean;
+	updated_at: string;
+	has_password: boolean;
+};
+
+export type NotificationSettingsInput = Omit<NotificationSettings, 'updated_at' | 'has_password'> & {
+	smtp_password?: string;
 };

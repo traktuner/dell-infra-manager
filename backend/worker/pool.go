@@ -14,18 +14,20 @@ import (
 	"github.com/dell-infra-manager/backend/config"
 	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/models"
+	"github.com/dell-infra-manager/backend/notifier"
 	"github.com/dell-infra-manager/backend/redfish"
 	"github.com/jmoiron/sqlx"
 )
 
 type Pool struct {
-	db  *sqlx.DB
-	hub *api.Hub
-	cfg *config.Config
+	db    *sqlx.DB
+	hub   *api.Hub
+	cfg   *config.Config
+	notif *notifier.Notifier
 }
 
-func New(db *sqlx.DB, hub *api.Hub, cfg *config.Config) *Pool {
-	return &Pool{db: db, hub: hub, cfg: cfg}
+func New(db *sqlx.DB, hub *api.Hub, cfg *config.Config, n *notifier.Notifier) *Pool {
+	return &Pool{db: db, hub: hub, cfg: cfg, notif: n}
 }
 
 // Run starts all background workers and blocks until ctx is cancelled.
@@ -231,17 +233,29 @@ func (p *Pool) pollAndCache(serverID, name, kind, column string, fetch func() (a
 // ── Individual pollers (post-processing only) ────────────────────────────────
 
 // pollSystem also flips status=online and emits status events.
+// Status transitions trigger SMTP notifications:
+//   - online → offline      → "server_offline" alert
+//   - offline → online      → clear dedup so the next outage alerts again
+//   - health: anything → Critical → "health_critical" alert
 func (p *Pool) pollSystem(client *redfish.Client, serverID, name string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("poller[%s] system PANIC: %v", name, r)
 		}
 	}()
+
+	prevStatus, _ := p.previousStatus(serverID)
+
 	sys, err := client.GetSystem()
 	if err != nil {
 		p.db.Exec(`UPDATE server_cache SET status='offline' WHERE server_id=?`, serverID)
 		p.hub.Emit("server_status", serverID, map[string]string{"status": "offline"})
 		log.Printf("poller[%s] system error: %v", name, err)
+		if prevStatus == "online" {
+			p.notif.Send("server_offline", serverID,
+				fmt.Sprintf("[Dell iDRAC Manager] %s is OFFLINE", name),
+				fmt.Sprintf("Server %q became unreachable.\n\nLast error: %v\n\nThe server may be powered off, the network connection may be down, or the iDRAC interface may be unreachable.", name, err))
+		}
 		return
 	}
 	data, _ := json.Marshal(sys)
@@ -249,13 +263,33 @@ func (p *Pool) pollSystem(client *redfish.Client, serverID, name string) {
 	res, _ := p.db.Exec(`UPDATE server_cache SET system_json=?, last_seen=?, status='online' WHERE server_id=?`,
 		string(data), now, serverID)
 	if rows, _ := res.RowsAffected(); rows == 0 {
-		// Row missing (newly added server, FK enforcement edge case) — create it.
 		p.db.Exec(`INSERT OR IGNORE INTO server_cache (server_id, status) VALUES (?, 'online')`, serverID)
 		p.db.Exec(`UPDATE server_cache SET system_json=?, last_seen=?, status='online' WHERE server_id=?`,
 			string(data), now, serverID)
 	}
 	p.hub.Emit("server_status", serverID, map[string]string{"status": "online", "power_state": sys.PowerState})
 	p.hub.Emit("power_state", serverID, map[string]string{"state": sys.PowerState})
+
+	// Recovered: forget the offline dedup mark so a future outage alerts again.
+	if prevStatus == "offline" {
+		p.notif.ClearDedup(serverID, "server_offline")
+	}
+
+	// Health transition into Critical → alert.
+	if sys.Status.Health == "Critical" {
+		p.notif.Send("health_critical", serverID,
+			fmt.Sprintf("[Dell iDRAC Manager] %s health: CRITICAL", name),
+			fmt.Sprintf("Server %q reports overall health = Critical.\n\nCheck the server's hardware sensors, drives, and power supplies via the dashboard or iDRAC web UI.", name))
+	} else if sys.Status.Health == "OK" {
+		// Recovered → forget so the next critical event isn't suppressed.
+		p.notif.ClearDedup(serverID, "health_critical")
+	}
+}
+
+func (p *Pool) previousStatus(serverID string) (string, error) {
+	var s string
+	err := p.db.Get(&s, `SELECT status FROM server_cache WHERE server_id = ?`, serverID)
+	return s, err
 }
 
 func (p *Pool) pollThermal(client *redfish.Client, serverID, name string) {
@@ -321,6 +355,15 @@ func (p *Pool) checkJobs(client *redfish.Client, serverID string) {
 				"job_id":  job.ID,
 				"success": iJob.JobState == "Completed",
 			})
+		}
+
+		// Notify on failure. We dedup by job ID so the same failed job doesn't
+		// re-alert if for some reason we keep polling it.
+		if iJob.JobState == "Failed" {
+			p.notif.Send("job_failed", job.ID,
+				fmt.Sprintf("[Dell iDRAC Manager] Job FAILED: %s", iJob.Name),
+				fmt.Sprintf("Job %q on server %s failed.\n\niDRAC message:\n%s\n\nLocal job ID: %s\niDRAC job ID: %s",
+					iJob.Name, serverID, iJob.Message, job.ID, iJob.ID))
 		}
 	}
 }
