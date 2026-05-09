@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"time"
 
 	"github.com/dell-infra-manager/backend/crypto"
@@ -118,7 +119,7 @@ func downloadDUP(ctx context.Context, catalogPath string) ([]byte, string, error
 		return nil, "", err
 	}
 	// Extract filename from path
-	filename := lastSegment(catalogPath)
+	filename := path.Base(catalogPath)
 	return data, filename, nil
 }
 

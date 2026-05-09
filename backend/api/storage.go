@@ -3,21 +3,20 @@ package api
 import (
 	"net/http"
 
-	"github.com/dell-infra-manager/backend/crypto"
-	"github.com/dell-infra-manager/backend/models"
-	"github.com/dell-infra-manager/backend/redfish"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
 
 type StorageHandler struct {
-	db  *sqlx.DB
+	db *sqlx.DB
 }
 
 func NewStorageHandler(db *sqlx.DB) *StorageHandler {
 	return &StorageHandler{db: db}
 }
 
+// GetStorage serves the cached storage payload, falling back to a live Redfish
+// fetch on cache miss (e.g., before the first poll has run).
 func (h *StorageHandler) GetStorage(c *gin.Context) {
 	id := c.Param("id")
 	var val *string
@@ -26,8 +25,7 @@ func (h *StorageHandler) GetStorage(c *gin.Context) {
 		c.Data(http.StatusOK, "application/json", []byte(*val))
 		return
 	}
-	// Live fetch on cache miss
-	client, err := h.buildClient(id)
+	client, err := buildClient(h.db, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -38,16 +36,4 @@ func (h *StorageHandler) GetStorage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, storage)
-}
-
-func (h *StorageHandler) buildClient(serverID string) (*redfish.Client, error) {
-	var s models.Server
-	if err := h.db.Get(&s, `SELECT * FROM servers WHERE id = ?`, serverID); err != nil {
-		return nil, err
-	}
-	password, err := crypto.Decrypt(s.Password)
-	if err != nil {
-		return nil, err
-	}
-	return redfish.NewClient(s.Hostname, s.Port, s.Username, password, s.TLSVerify), nil
 }

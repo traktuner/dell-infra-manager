@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/dell-infra-manager/backend/config"
-	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/models"
 	"github.com/dell-infra-manager/backend/redfish"
 	"github.com/gin-gonic/gin"
@@ -222,14 +221,3 @@ func (h *FirmwareHandler) BulkQueueUpdate(c *gin.Context) {
 	c.JSON(http.StatusAccepted, results)
 }
 
-func (h *FirmwareHandler) buildClient(serverID string) (*redfish.Client, error) {
-	var s models.Server
-	if err := h.db.Get(&s, `SELECT * FROM servers WHERE id = ?`, serverID); err != nil {
-		return nil, err
-	}
-	password, err := crypto.Decrypt(s.Password)
-	if err != nil {
-		return nil, err
-	}
-	return redfish.NewClient(s.Hostname, s.Port, s.Username, password, s.TLSVerify), nil
-}

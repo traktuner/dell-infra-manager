@@ -3,9 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/models"
-	"github.com/dell-infra-manager/backend/redfish"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
@@ -31,11 +29,10 @@ func (h *JobsHandler) GetAllJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, jobs)
 }
 
-// GetIDRACJobs fetches the live iDRAC job queue from the BMC (not our local DB).
-// This shows what iDRAC itself is processing — Lifecycle Controller jobs,
-// configuration jobs, etc. — independent of jobs we queued ourselves.
+// GetIDRACJobs returns the live iDRAC job queue (not our local DB) — Lifecycle
+// Controller jobs, config jobs, etc. — fetched in a single Redfish call via $expand.
 func (h *JobsHandler) GetIDRACJobs(c *gin.Context) {
-	client, err := h.buildClient(c.Param("id"))
+	client, err := buildClient(h.db, c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -48,18 +45,15 @@ func (h *JobsHandler) GetIDRACJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, jobs)
 }
 
+// DeleteJob removes a local job and best-effort deletes the matching iDRAC job too.
 func (h *JobsHandler) DeleteJob(c *gin.Context) {
-	id := c.Param("id")
-	jid := c.Param("jid")
+	id, jid := c.Param("id"), c.Param("jid")
 
-	// Try to also delete from iDRAC
-	client, err := h.buildClient(id)
-	if err == nil {
+	if client, err := buildClient(h.db, id); err == nil {
 		var j models.Job
-		if h.db.Get(&j, `SELECT * FROM jobs WHERE id = ? AND server_id = ?`, jid, id) == nil {
-			if j.IDRACJobID != nil {
-				_ = client.DeleteJob(*j.IDRACJobID)
-			}
+		if h.db.Get(&j, `SELECT * FROM jobs WHERE id = ? AND server_id = ?`, jid, id) == nil &&
+			j.IDRACJobID != nil {
+			_ = client.DeleteJob(*j.IDRACJobID)
 		}
 	}
 
@@ -68,34 +62,19 @@ func (h *JobsHandler) DeleteJob(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
 		return
 	}
 	c.JSON(http.StatusNoContent, nil)
 }
 
+// ClearAllJobs clears iDRAC's queue (JID_CLEARALL) and our local queued/running jobs.
 func (h *JobsHandler) ClearAllJobs(c *gin.Context) {
 	id := c.Param("id")
-
-	client, err := h.buildClient(id)
-	if err == nil {
-		_ = client.ClearJobQueue(nil) // nil = JID_CLEARALL
+	if client, err := buildClient(h.db, id); err == nil {
+		_ = client.ClearJobQueue(nil) // nil → JID_CLEARALL
 	}
-
 	h.db.Exec(`DELETE FROM jobs WHERE server_id = ? AND status IN ('queued','running')`, id)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
-}
-
-func (h *JobsHandler) buildClient(serverID string) (*redfish.Client, error) {
-	var s models.Server
-	if err := h.db.Get(&s, `SELECT * FROM servers WHERE id = ?`, serverID); err != nil {
-		return nil, err
-	}
-	password, err := crypto.Decrypt(s.Password)
-	if err != nil {
-		return nil, err
-	}
-	return redfish.NewClient(s.Hostname, s.Port, s.Username, password, s.TLSVerify), nil
 }

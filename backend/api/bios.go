@@ -5,9 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dell-infra-manager/backend/crypto"
 	"github.com/dell-infra-manager/backend/models"
-	"github.com/dell-infra-manager/backend/redfish"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -28,7 +26,7 @@ func (h *BiosHandler) GetBios(c *gin.Context) {
 	row := h.db.QueryRow(`SELECT bios_json FROM server_cache WHERE server_id = ?`, id)
 	if err := row.Scan(&val); err != nil || val == nil {
 		// cache miss — fetch live
-		client, err := h.buildClient(id)
+		client, err := buildClient(h.db, id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 			return
@@ -52,7 +50,7 @@ func (h *BiosHandler) GetBiosRegistry(c *gin.Context) {
 	var val *string
 	row := h.db.QueryRow(`SELECT bios_registry_json FROM server_cache WHERE server_id = ?`, id)
 	if err := row.Scan(&val); err != nil || val == nil {
-		client, err := h.buildClient(id)
+		client, err := buildClient(h.db, id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 			return
@@ -82,7 +80,7 @@ func (h *BiosHandler) SetBiosSettings(c *gin.Context) {
 		req.ApplyTime = "OnReset"
 	}
 
-	client, err := h.buildClient(id)
+	client, err := buildClient(h.db, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -118,14 +116,3 @@ func (h *BiosHandler) GetPending(c *gin.Context) {
 	c.JSON(http.StatusOK, jobs)
 }
 
-func (h *BiosHandler) buildClient(serverID string) (*redfish.Client, error) {
-	var s models.Server
-	if err := h.db.Get(&s, `SELECT * FROM servers WHERE id = ?`, serverID); err != nil {
-		return nil, err
-	}
-	password, err := crypto.Decrypt(s.Password)
-	if err != nil {
-		return nil, err
-	}
-	return redfish.NewClient(s.Hostname, s.Port, s.Username, password, s.TLSVerify), nil
-}
