@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/dell-infra-manager/backend/config"
@@ -31,6 +30,18 @@ func NewFirmwareHandler(db *sqlx.DB, hub *Hub, cfg *config.Config) *FirmwareHand
 		catalogPath: cfg.Dell.CachePath,
 		catalogURL:  cfg.Dell.CatalogURL,
 	}
+}
+
+// missingSoftwareIds returns true if any cached firmware component lacks a
+// SoftwareId — happens for caches written by an older build. We use this as
+// a signal to force a fresh inventory poll so catalog matching has real data.
+func missingSoftwareIds(comps []redfish.FirmwareComponent) bool {
+	for _, c := range comps {
+		if c.SoftwareId == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // loadCatalogWithSelfHeal parses the cached catalog. On parse failure it
@@ -112,14 +123,12 @@ type AvailableUpdate struct {
 
 func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 	id := c.Param("id")
+	refresh := c.Query("refresh") == "1"
 
-	// Frontend "Check for Updates" button passes ?refresh=1 — do a conditional
-	// GET against Dell first. The local catalog may have new content even if
-	// our 24h timer hasn't fired yet.
-	if c.Query("refresh") == "1" {
+	if refresh {
+		// Refresh Dell catalog (cheap if nothing changed; 304 Not Modified).
 		if _, err := redfish.DownloadCatalogIfModified(h.catalogURL, h.catalogPath); err != nil {
 			log.Printf("catalog refresh during GetAvailable failed: %v", err)
-			// fall through — we can still serve stale results
 		}
 	}
 
@@ -132,6 +141,21 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 
 	var installed []redfish.FirmwareComponent
 	json.Unmarshal([]byte(*firmwareVal), &installed)
+
+	// If refresh=1 OR cached entries lack SoftwareId (e.g. cache from older
+	// build), re-fetch live inventory so the catalog match by SoftwareId actually
+	// has the data it needs. Costs one Redfish round-trip but the caller is
+	// explicitly asking for fresh data via the Re-check button.
+	if refresh || missingSoftwareIds(installed) {
+		if client, err := buildClient(h.db, id); err == nil {
+			if fresh, fErr := client.GetFirmwareInventory(); fErr == nil && len(fresh) > 0 {
+				installed = fresh
+				if data, mErr := json.Marshal(fresh); mErr == nil {
+					h.db.Exec(`UPDATE server_cache SET firmware_json=? WHERE server_id=?`, string(data), id)
+				}
+			}
+		}
+	}
 
 	catalog, err := h.loadCatalogWithSelfHeal()
 	if err != nil {
@@ -152,25 +176,41 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 
 	catalogForModel := redfish.FilterByModel(catalog, model)
 
-	// Initialise as empty slice (not nil) so JSON marshals to `[]` rather than
-	// `null` — the frontend reduces over this and `null.length` would throw.
-	updates := make([]AvailableUpdate, 0)
-	for _, inst := range installed {
-		for _, cat := range catalogForModel {
-			if strings.EqualFold(cat.ComponentType, inst.Name) ||
-				strings.Contains(strings.ToUpper(cat.Name), strings.ToUpper(inst.Name)) {
-				if cat.Version != inst.Version {
-					updates = append(updates, AvailableUpdate{
-						Component:        inst.Name,
-						InstalledVersion: inst.Version,
-						AvailableVersion: cat.Version,
-						ReleaseDate:      cat.ReleaseDate,
-						CatalogPath:      cat.Path,
-					})
-				}
-				break
+	// Build a lookup: componentID → newest catalog component for that ID.
+	// This is how Dell's own DRM matches inventory against catalog: every
+	// installed component carries a SoftwareId (e.g. "159" for BIOS) and the
+	// catalog SoftwareComponent declares which IDs it covers via <SupportedDevices>.
+	// Matching by display name or ComponentType, as we did before, was unreliable
+	// for anything beyond BIOS/iDRAC.
+	byComponentID := make(map[string]redfish.CatalogComponent, len(catalogForModel))
+	for _, cat := range catalogForModel {
+		for _, cid := range cat.ComponentIDs {
+			existing, ok := byComponentID[cid]
+			if !ok || cat.ReleaseDate > existing.ReleaseDate {
+				byComponentID[cid] = cat
 			}
 		}
+	}
+
+	updates := make([]AvailableUpdate, 0)
+	for _, inst := range installed {
+		if inst.SoftwareId == "" {
+			continue
+		}
+		cat, ok := byComponentID[inst.SoftwareId]
+		if !ok {
+			continue
+		}
+		if cat.Version == inst.Version {
+			continue
+		}
+		updates = append(updates, AvailableUpdate{
+			Component:        inst.Name,
+			InstalledVersion: inst.Version,
+			AvailableVersion: cat.Version,
+			ReleaseDate:      cat.ReleaseDate,
+			CatalogPath:      cat.Path,
+		})
 	}
 	c.JSON(http.StatusOK, updates)
 }

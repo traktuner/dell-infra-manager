@@ -22,6 +22,9 @@ type CatalogComponent struct {
 	ReleaseDate     string
 	ComponentType   string
 	SupportedModels []string
+	// ComponentIDs are Dell's stable per-device IDs from <SupportedDevices>.
+	// Match these against FirmwareComponent.SoftwareId from iDRAC inventory.
+	ComponentIDs    []string
 }
 
 type CatalogInfo struct {
@@ -54,6 +57,11 @@ type catalogComponent struct {
 			} `xml:"Model"`
 		} `xml:"Brand"`
 	} `xml:"SupportedSystems"`
+	SupportedDevices struct {
+		Devices []struct {
+			ComponentID string `xml:"componentID,attr"`
+		} `xml:"Device"`
+	} `xml:"SupportedDevices"`
 }
 
 // catalogClient is a dedicated HTTP client for catalog downloads.
@@ -274,6 +282,12 @@ func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
 				supportedModels = append(supportedModels, m.Name)
 			}
 		}
+		var componentIDs []string
+		for _, d := range c.SupportedDevices.Devices {
+			if d.ComponentID != "" {
+				componentIDs = append(componentIDs, d.ComponentID)
+			}
+		}
 		result = append(result, CatalogComponent{
 			Name:            name,
 			Version:         c.VendorVersion,
@@ -281,6 +295,7 @@ func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
 			ReleaseDate:     c.ReleaseDate,
 			ComponentType:   c.ComponentType.Value,
 			SupportedModels: supportedModels,
+			ComponentIDs:    componentIDs,
 		})
 	}
 	return result, nil

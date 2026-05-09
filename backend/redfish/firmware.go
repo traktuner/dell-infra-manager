@@ -21,6 +21,11 @@ type FirmwareComponent struct {
 	Version    string `json:"Version"`
 	Updateable bool   `json:"Updateable"`
 	Status     Status `json:"Status"`
+	// SoftwareId is Dell's stable per-device identifier (e.g. "159" for BIOS,
+	// "25227" for a NIC). It matches <SupportedDevices><Device componentID="...">
+	// in the catalog SoftwareComponent. This is THE field Dell's own DRM uses
+	// for catalog comparison — display names and component types are unreliable.
+	SoftwareId string `json:"SoftwareId"`
 }
 
 func (c *Client) GetFirmwareInventory() ([]FirmwareComponent, error) {

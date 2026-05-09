@@ -158,7 +158,7 @@
 		<button
 			onclick={refreshData}
 			disabled={refreshing}
-			title="Kartendaten aktualisieren"
+			title="Refresh card data (read-only — no power action)"
 			class="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800
 				disabled:opacity-30 transition-colors"
 		>

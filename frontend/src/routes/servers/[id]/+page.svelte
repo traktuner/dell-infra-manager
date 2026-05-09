@@ -289,15 +289,20 @@
 		return () => { unsub(); unsub2(); };
 	});
 
-	const tabs: { key: TabKey; label: string; icon: typeof Cpu }[] = [
-		{ key: 'overview', label: 'Overview', icon: Cpu },
-		{ key: 'storage', label: 'Storage', icon: HardDrive },
-		{ key: 'firmware', label: 'Firmware', icon: RefreshCw },
-		{ key: 'bios', label: 'BIOS', icon: Settings },
-		{ key: 'virtualmedia', label: 'Virtual Media', icon: Disc },
-		{ key: 'eventlog', label: 'Event Log', icon: FileText },
-		{ key: 'jobs', label: 'iDRAC Jobs', icon: ListChecks },
-		{ key: 'console', label: 'Console', icon: SquareTerminal }
+	// Tab ordering by usage frequency:
+	//   1. Overview          — landing tab, all-at-a-glance
+	//   2. Console           — KVM/SOL, used a lot during incidents → keep close
+	//   3-6. Configuration   — hardware-config screens (Storage / Firmware / BIOS / Virtual Media)
+	//   7-8. Forensics       — historical data (Event Log / Jobs)
+	const tabs: { key: TabKey; label: string; icon: typeof Cpu; group?: 'config' | 'log' }[] = [
+		{ key: 'overview',     label: 'Overview',      icon: Cpu },
+		{ key: 'console',      label: 'Console',       icon: SquareTerminal },
+		{ key: 'storage',      label: 'Storage',       icon: HardDrive,  group: 'config' },
+		{ key: 'firmware',     label: 'Firmware',      icon: RefreshCw,  group: 'config' },
+		{ key: 'bios',         label: 'BIOS',          icon: Settings,   group: 'config' },
+		{ key: 'virtualmedia', label: 'Virtual Media', icon: Disc,       group: 'config' },
+		{ key: 'eventlog',     label: 'Event Log',     icon: FileText,   group: 'log' },
+		{ key: 'jobs',         label: 'Jobs',          icon: ListChecks, group: 'log' }
 	];
 </script>
 
@@ -314,26 +319,45 @@
 					<div class="text-xs text-zinc-600 mt-0.5">{system.Model} · {system.SerialNumber}</div>
 				{/if}
 			</div>
-			<div class="flex items-center gap-3">
-				<StatusBadge status={cache?.status ?? 'unknown'} />
+			<!-- Status badges with explicit labels so it's obvious which is which.
+			     Reachability is implied by Power/Health when system data is fresh — only
+			     show the offline pill if we explicitly can't reach the BMC. -->
+			<div class="flex items-center gap-3 text-xs">
+				{#if cache?.status === 'offline' || cache?.status === 'unknown'}
+					<span class="flex items-center gap-1.5">
+						<span class="text-zinc-600">BMC</span>
+						<StatusBadge status={cache?.status ?? 'unknown'} size="sm" />
+					</span>
+				{/if}
 				{#if system}
-					<StatusBadge status={system.PowerState} />
-					<StatusBadge status={system.Status.Health} />
+					<span class="flex items-center gap-1.5" title="Server power state">
+						<span class="text-zinc-600">Power</span>
+						<StatusBadge status={system.PowerState} size="sm" />
+					</span>
+					<span class="flex items-center gap-1.5" title="Hardware health (sensors / drives / fans)">
+						<span class="text-zinc-600">Health</span>
+						<StatusBadge status={system.Status.Health} size="sm" />
+					</span>
 				{/if}
 			</div>
 		</div>
 
-		<div class="flex gap-1 border-b border-zinc-800 overflow-x-auto">
-			{#each tabs as { key, label, icon: Icon }}
+		<div class="flex items-end gap-1 border-b border-zinc-800 overflow-x-auto">
+			{#each tabs as t, i}
+				{@const prev = tabs[i - 1]}
+				{#if i > 0 && prev?.group !== t.group}
+					<!-- visual divider between Overview/Console · Config · Logs groups -->
+					<span class="w-px h-5 bg-zinc-800 mx-2 self-center"></span>
+				{/if}
 				<button
-					onclick={() => selectTab(key)}
+					onclick={() => selectTab(t.key)}
 					class="flex items-center gap-2 px-4 py-2.5 text-sm border-b-2 transition-colors whitespace-nowrap
-						{tab === key
+						{tab === t.key
 						? 'border-blue-500 text-blue-400'
 						: 'border-transparent text-zinc-500 hover:text-zinc-300'}"
 				>
-					<Icon class="w-4 h-4" />
-					{label}
+					<t.icon class="w-4 h-4" />
+					{t.label}
 				</button>
 			{/each}
 		</div>
@@ -518,6 +542,7 @@
 					<button
 						onclick={checkFirmwareUpdates}
 						disabled={fwChecking}
+						title="Refresh Dell catalog and re-compare against installed firmware"
 						class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
 					>
 						<RefreshCw class="w-4 h-4 {fwChecking ? 'animate-spin' : ''}" />
@@ -634,6 +659,7 @@
 					<span class="text-xs text-zinc-600">{logTotal} entries</span>
 					<button
 						onclick={clearLog}
+						title="Permanently clear the iDRAC Lifecycle Controller log on this server. Cannot be undone."
 						class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
 					>
 						<Trash2 class="w-4 h-4" />
