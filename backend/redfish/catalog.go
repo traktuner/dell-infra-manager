@@ -111,16 +111,13 @@ func downloadCatalog(catalogURL, cachePath string, conditional bool) (bool, erro
 	return true, nil
 }
 
-// readCatalogBytes returns the catalog as a clean UTF-8 byte slice, regardless
-// of whether the file is gzipped or plain, and regardless of whether Dell ships
-// pure UTF-8 or Windows-1252 bytes.
+// readCatalogBytes returns the catalog as a UTF-8 byte slice, decompressing
+// gzip and transcoding from UTF-16 if needed.
 //
-// Steps:
-//  1. Read the file (gzip-decompressed if applicable, plain otherwise).
-//  2. Transcode Windows-1252 → UTF-8 if the bytes aren't valid UTF-8 (Dell's
-//     XML declares UTF-8 but historically ships © ® ™ as 0xA9 0xAE 0x99).
-//  3. Strip any leading garbage before the first '<' — handles UTF-8 BOM,
-//     stray whitespace, accidental prefix bytes from a half-finished download.
+// Reality check on Dell's format (verified May 2026): they ship the catalog
+// gzipped, with the inner XML encoded as UTF-16 LE — not UTF-8 as we'd assumed.
+// The XML declaration even states it: <?xml version="1.0" encoding="utf-16"?>.
+// Go's encoding/xml only handles UTF-8, so we transcode here.
 func readCatalogBytes(cachePath string) ([]byte, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
@@ -141,20 +138,54 @@ func readCatalogBytes(cachePath string) ([]byte, error) {
 		return nil, err
 	}
 
-	if !utf8.Valid(data) {
-		out, _, err := transform.Bytes(charmap.Windows1252.NewDecoder(), data)
+	// UTF-16 detection — handles both BOM-prefixed and BOM-less Dell catalogs.
+	// ExpectBOM means: consume a BOM if present, otherwise treat as the chosen
+	// endianness. Dell ships LE without a BOM in our observed cases.
+	if isUTF16(data) {
+		dec := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
+		out, _, err := transform.Bytes(dec, data)
 		if err != nil {
-			return nil, fmt.Errorf("transcode catalog: %w", err)
+			return nil, fmt.Errorf("transcode UTF-16 catalog: %w", err)
 		}
 		data = out
 	}
 
-	// Strip any bytes before the first '<' — Dell's catalog should start with
-	// '<?xml' or '<Manifest' but a stale download or BOM can leave junk there.
+	// Strip any bytes before the first '<' — handles UTF-8 BOM, stray
+	// whitespace, leftover surrogates, etc.
 	if idx := bytes.IndexByte(data, '<'); idx > 0 {
 		data = data[idx:]
 	}
 	return data, nil
+}
+
+// isUTF16 returns true if data looks like UTF-16 (BOM or null-byte pattern).
+// We check the first 16 bytes — enough to disambiguate from any plausible
+// UTF-8 / Windows-1252 content (XML always starts with '<' or whitespace,
+// neither of which produces alternating null bytes in single-byte encodings).
+func isUTF16(data []byte) bool {
+	// BOMs first.
+	if len(data) >= 2 {
+		if (data[0] == 0xFF && data[1] == 0xFE) || (data[0] == 0xFE && data[1] == 0xFF) {
+			return true
+		}
+	}
+	// BOM-less detection: Dell's catalog. ASCII chars in UTF-16 LE always have
+	// 0x00 at every odd index. Sample the first 16 bytes.
+	n := len(data)
+	if n > 16 {
+		n = 16
+	}
+	if n < 4 {
+		return false
+	}
+	zerosAtOdd := 0
+	for i := 1; i < n; i += 2 {
+		if data[i] == 0 {
+			zerosAtOdd++
+		}
+	}
+	// If ≥ 75% of odd-index bytes are zero, treat as UTF-16 LE.
+	return zerosAtOdd*4 >= (n/2)*3
 }
 
 // newCatalogDecoder returns a UTF-8-clean xml.Decoder over the catalog file.
