@@ -5,55 +5,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"sort"
-	"sync"
 )
 
 type IDRACJob struct {
-	ID              string  `json:"Id"`
-	Name            string  `json:"Name"`
-	JobState        string  `json:"JobState"`
-	PercentComplete int     `json:"PercentComplete"`
-	Message         string  `json:"Message"`
-	StartTime       string  `json:"StartTime"`
-	EndTime         string  `json:"EndTime"`
+	ID              string `json:"Id"`
+	Name            string `json:"Name"`
+	JobState        string `json:"JobState"`
+	PercentComplete int    `json:"PercentComplete"`
+	Message         string `json:"Message"`
+	StartTime       string `json:"StartTime"`
+	EndTime         string `json:"EndTime"`
 }
 
-type IDRACJobCollection struct {
-	Members []ODataRef `json:"Members"`
+// jobsCollection holds the inline-expanded Members from $expand=*.
+type jobsCollection struct {
+	Members []IDRACJob `json:"Members"`
 }
 
+// GetJobs fetches all iDRAC jobs in a single Redfish call using $expand=*,
+// which inlines each Job's full payload into the collection response.
+// This avoids the N+1 fan-out we'd otherwise need to dereference Members refs.
 func (c *Client) GetJobs() ([]IDRACJob, error) {
-	var col IDRACJobCollection
-	if err := c.get("/Managers/iDRAC.Embedded.1/Jobs", &col); err != nil {
+	var col jobsCollection
+	if err := c.get("/Managers/iDRAC.Embedded.1/Jobs?$expand=*($levels=1)", &col); err != nil {
 		return nil, err
 	}
-	// Fetch each job in parallel — iDRAC fleets can have dozens of historical jobs,
-	// and serial fetches blow past the 30s HTTP timeout.
-	jobs := make([]IDRACJob, len(col.Members))
-	var wg sync.WaitGroup
-	for i, ref := range col.Members {
-		wg.Add(1)
-		go func(i int, path string) {
-			defer wg.Done()
-			var j IDRACJob
-			if err := c.get(path, &j); err == nil {
-				jobs[i] = j
-			}
-		}(i, stripBaseURL(ref.ID))
+	// Most-recently-started first. iDRAC sometimes uses "TIME_NA" as a placeholder
+	// for not-yet-started jobs — those sort last naturally with string compare.
+	sort.Slice(col.Members, func(i, j int) bool {
+		return col.Members[i].StartTime > col.Members[j].StartTime
+	})
+	if col.Members == nil {
+		col.Members = []IDRACJob{}
 	}
-	wg.Wait()
-	// Strip out failed fetches (zero-value structs).
-	out := jobs[:0]
-	for _, j := range jobs {
-		if j.ID != "" {
-			out = append(out, j)
-		}
-	}
-	// Most-recently-started first.
-	sort.Slice(out, func(i, j int) bool { return out[i].StartTime > out[j].StartTime })
-	return out, nil
+	return col.Members, nil
 }
 
 func (c *Client) GetJob(jid string) (*IDRACJob, error) {
@@ -97,15 +83,7 @@ func (c *Client) ClearJobQueue(jobIDs []string) error {
 	return nil
 }
 
-// WaitForJobState checks job state — caller polls this at interval.
+// IsJobDone returns true for terminal states.
 func IsJobDone(state string) bool {
 	return state == "Completed" || state == "Failed"
-}
-
-func jobCheckResponse(resp *http.Response) error {
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(b))
-	}
-	return nil
 }

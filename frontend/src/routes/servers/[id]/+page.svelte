@@ -148,8 +148,11 @@
 
 	async function checkFirmwareUpdates() {
 		fwChecking = true;
+		fwError = '';
 		try {
-			fwUpdates = await api.firmware.available(id);
+			// refresh=true triggers a conditional GET against Dell's catalog
+			// before comparing — cheap if Dell hasn't published anything new.
+			fwUpdates = await api.firmware.available(id, true);
 		} catch (e) {
 			fwError = (e as Error).message;
 		} finally {
@@ -157,32 +160,50 @@
 		}
 	}
 
+	// loadBios: schneller Pfad — Attribute + pending Jobs sofort.
+	// Die Registry (~2 MB) wird im Hintergrund nachgeladen; sobald sie da ist
+	// erscheinen die Edit/Read-only-Labels. Edit-Klicks vorher warten kurz auf
+	// die Registry und öffnen dann das Modal.
 	async function loadBios() {
 		biosLoading = true;
 		biosError = '';
 		try {
-			const [biosResp, registry, pending] = await Promise.all([
+			const [biosResp, pending] = await Promise.all([
 				api.bios.get(id),
-				api.bios.registry(id),
 				api.bios.pending(id)
 			]);
 			biosAttributes = biosResp.Attributes;
 			biosPending = pending;
-			const map = new Map<string, BiosRegistryEntry>();
-			for (const entry of registry.RegistryEntries?.Attributes ?? []) {
-				map.set(entry.AttributeName, {
-					...entry,
-					current_value: biosResp.Attributes[entry.AttributeName],
-					AllowedValues: entry.Value?.map((v) => v.ValueName) ?? []
-				});
-			}
-			biosRegistry = map;
 			biosLoaded = true;
+			// Fire-and-forget — UI updates reactively when registry arrives.
+			ensureBiosRegistry().catch(() => {});
 		} catch (e) {
 			biosError = (e as Error).message;
 		} finally {
 			biosLoading = false;
 		}
+	}
+
+	// Registry wird einmal geladen; mehrfache Aufrufe teilen sich den Promise.
+	let biosRegistryLoaded = $state(false);
+	let biosRegistryPromise: Promise<void> | null = null;
+	function ensureBiosRegistry(): Promise<void> {
+		if (biosRegistryLoaded) return Promise.resolve();
+		if (biosRegistryPromise) return biosRegistryPromise;
+		biosRegistryPromise = (async () => {
+			const registry = await api.bios.registry(id);
+			const map = new Map<string, BiosRegistryEntry>();
+			for (const entry of registry.RegistryEntries?.Attributes ?? []) {
+				map.set(entry.AttributeName, {
+					...entry,
+					current_value: biosAttributes[entry.AttributeName],
+					AllowedValues: entry.Value?.map((v) => v.ValueName) ?? []
+				});
+			}
+			biosRegistry = map;
+			biosRegistryLoaded = true;
+		})();
+		return biosRegistryPromise;
 	}
 
 	async function loadIdracJobs() {
@@ -213,7 +234,8 @@
 		if (key === 'jobs' && !idracJobsLoaded) loadIdracJobs();
 	}
 
-	function openBiosEdit(attrName: string) {
+	async function openBiosEdit(attrName: string) {
+		await ensureBiosRegistry();
 		const entry = biosRegistry.get(attrName);
 		if (!entry || entry.ReadOnly) return;
 		biosEditing = { ...entry, current_value: biosAttributes[attrName] };

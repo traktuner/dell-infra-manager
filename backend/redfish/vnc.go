@@ -7,67 +7,66 @@ import (
 	"io"
 )
 
-// VNCStatus holds the current VNC configuration read from iDRAC.
+// VNCStatus reflects what iDRAC currently has configured for VNCServer.1.
 type VNCStatus struct {
-	Enabled  bool   `json:"enabled"`
-	Port     int    `json:"port"`
-	Password string `json:"-"` // never serialised to JSON
+	Enabled bool `json:"enabled"`
+	Port    int  `json:"port"`
 }
 
-// iDRAC9 Redfish attribute path for iDRAC manager attributes.
 const idracAttributesPath = "/Managers/iDRAC.Embedded.1/Attributes"
 
-// GetVNCStatus reads the current VNC server config from iDRAC Attributes.
+// GetVNCStatus reads the current VNC server config from iDRAC.
+// Per Dell iDRAC9 Attribute Registry: VNCServer.1.Enable is a string
+// ("Enabled"/"Disabled") and VNCServer.1.Port is a number.
 func (c *Client) GetVNCStatus() (*VNCStatus, error) {
 	var result struct {
-		Attributes map[string]interface{} `json:"Attributes"`
+		Attributes map[string]any `json:"Attributes"`
 	}
 	if err := c.get(idracAttributesPath, &result); err != nil {
-		return nil, fmt.Errorf("get iDRAC attributes: %w", err)
+		return nil, fmt.Errorf("read iDRAC attributes: %w", err)
 	}
-	attrs := result.Attributes
-
-	enabled := false
-	if v, ok := attrs["VNCServer.1.Enable"]; ok {
-		switch s := v.(type) {
-		case string:
-			enabled = s == "Enabled"
-		case bool:
-			enabled = s
-		}
-	}
-	port := 5901
-	if v, ok := attrs["VNCServer.1.Port"]; ok {
-		switch n := v.(type) {
-		case float64:
-			port = int(n)
-		case int:
-			port = n
-		}
-	}
-	return &VNCStatus{Enabled: enabled, Port: port}, nil
+	return &VNCStatus{
+		Enabled: result.Attributes["VNCServer.1.Enable"] == "Enabled",
+		Port:    intAttr(result.Attributes["VNCServer.1.Port"], 5901),
+	}, nil
 }
 
-// EnableVNC enables the iDRAC VNC server on the given port with the given
-// password. iDRAC applies the setting immediately (no reboot required).
-func (c *Client) EnableVNC(port int, password string) error {
-	payload := map[string]interface{}{
-		"Attributes": map[string]interface{}{
-			"VNCServer.1.Enable":                "Enabled",
-			"VNCServer.1.Port":                  port,
-			"VNCServer.1.Password":              password,
-			"VNCServer.1.SSLEncryptionBitLength": 0, // no TLS on VNC — our Go proxy handles transport
+// ConfigureVNC enables VNC on iDRAC with the given port and password.
+// iDRAC applies the change immediately (no reboot needed).
+func (c *Client) ConfigureVNC(port int, password string) error {
+	body, _ := json.Marshal(map[string]any{
+		"Attributes": map[string]any{
+			"VNCServer.1.Enable":   "Enabled",
+			"VNCServer.1.Port":     port,
+			"VNCServer.1.Password": password,
 		},
-	}
-	body, _ := json.Marshal(payload)
+	})
 	resp, err := c.patch(idracAttributesPath, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("patch iDRAC VNC attributes: %w", err)
+		return fmt.Errorf("patch iDRAC VNC: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("iDRAC VNC enable returned %d: %s", resp.StatusCode, string(b))
+		return fmt.Errorf("iDRAC VNC configure (%d): %s", resp.StatusCode, b)
 	}
 	return nil
+}
+
+// intAttr extracts an int from a JSON-decoded any value, returning fallback on
+// any type mismatch. iDRAC sometimes returns numeric attributes as strings,
+// sometimes as numbers — this normalises both.
+func intAttr(v any, fallback int) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case string:
+		var i int
+		if _, err := fmt.Sscanf(n, "%d", &i); err == nil {
+			return i
+		}
+	}
+	return fallback
 }

@@ -136,9 +136,14 @@ export const api = {
 		clear: (id: string) => request<{ ok: boolean }>('DELETE', `/servers/${id}/eventlog`)
 	},
 	vnc: {
-		info:   (id: string) => request<{ configured: boolean; port?: number; token?: string }>('GET', `/servers/${id}/vnc/info`),
-		enable: (id: string) => request<{ port: number; token: string; fallback?: string; error?: string }>('POST', `/servers/${id}/vnc/enable`),
-		reset:  (id: string) => request<{ ok: boolean }>('POST', `/servers/${id}/vnc/reset`),
+		/** Idempotent: returns port + token, configures iDRAC only if needed. */
+		enable: (id: string) =>
+			request<{ port: number; token: string; fallback?: string; error?: string }>(
+				'POST',
+				`/servers/${id}/vnc/enable`
+			),
+		/** Clears stored credentials so next enable rotates the iDRAC password. */
+		reset: (id: string) => request<{ ok: boolean }>('POST', `/servers/${id}/vnc/reset`),
 		/** Builds the WebSocket URL for the VNC proxy (not a fetch call). */
 		proxyUrl: (id: string, token: string): string => {
 			const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

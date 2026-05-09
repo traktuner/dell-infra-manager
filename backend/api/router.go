@@ -76,12 +76,12 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, staticFiles fs.FS) *gi
 		// Console: SSH/SOL (fallback)
 		api.GET("/servers/:id/console", console.Connect)
 
-		// Console: VNC/KVM via noVNC
-		api.GET("/servers/:id/vnc/info",     vnc.Info)
-		api.POST("/servers/:id/vnc/enable",  vnc.Enable)
-		api.GET("/servers/:id/vnc/proxy",   vnc.Proxy)    // WebSocket upgrade
-		api.GET("/servers/:id/vnc/password", vnc.Password) // plaintext pw for RFB auth
-		api.POST("/servers/:id/vnc/reset",  vnc.Reset)
+		// Console: VNC/KVM via noVNC. /enable is idempotent — call it on every
+		// open; it reads iDRAC state and only PATCHes when (re)configuration is needed.
+		api.POST("/servers/:id/vnc/enable",   vnc.Enable)
+		api.GET("/servers/:id/vnc/proxy",    vnc.Proxy)    // WebSocket TCP-tunnel
+		api.GET("/servers/:id/vnc/password", vnc.Password) // RFB auth password
+		api.POST("/servers/:id/vnc/reset",    vnc.Reset)   // force re-configure on next /enable
 
 		// Global views
 		api.GET("/jobs", jobs.GetAllJobs)
