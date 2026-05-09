@@ -10,9 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode/utf8"
 
-	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
 
