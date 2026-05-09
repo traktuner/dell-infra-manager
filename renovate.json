@@ -2,5 +2,32 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "bits-ui v2 is a major breaking change but bits-ui is only a transitive dep via layerchart@2.0.0-next which pins it to v1. Bumping breaks the chart components.",
+      "matchPackageNames": ["bits-ui"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "TypeScript v6 is too new — keep on v5 until svelte-check / sveltekit ecosystem is fully validated against it.",
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Group SvelteKit + vite + vite-plugin-svelte updates together. They have peer-dep constraints on each other and updating them in one PR avoids the chicken-and-egg failures we hit before.",
+      "groupName": "svelte ecosystem",
+      "matchPackageNames": [
+        "svelte",
+        "@sveltejs/kit",
+        "@sveltejs/adapter-static",
+        "@sveltejs/vite-plugin-svelte",
+        "svelte-check",
+        "vite",
+        "@tailwindcss/vite"
+      ]
+    }
   ]
 }
