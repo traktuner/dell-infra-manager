@@ -94,7 +94,7 @@
 		]);
 		if (s.status === 'fulfilled') server = s.value;
 		if (c.status === 'fulfilled') cache = c.value;
-		if (j.status === 'fulfilled') localJobs = j.value;
+		if (j.status === 'fulfilled') localJobs = j.value ?? [];
 	}
 
 	async function loadStorage() {
@@ -136,8 +136,9 @@
 				api.cache.firmware(id),
 				api.firmware.available(id).catch(() => [])
 			]);
-			fwComponents = comps;
-			fwUpdates = upds;
+			// Backend may return null for empty Go slices — coerce to [].
+			fwComponents = comps ?? [];
+			fwUpdates = upds ?? [];
 			fwLoaded = true;
 		} catch (e) {
 			fwError = (e as Error).message;
@@ -150,9 +151,7 @@
 		fwChecking = true;
 		fwError = '';
 		try {
-			// refresh=true triggers a conditional GET against Dell's catalog
-			// before comparing — cheap if Dell hasn't published anything new.
-			fwUpdates = await api.firmware.available(id, true);
+			fwUpdates = (await api.firmware.available(id, true)) ?? [];
 		} catch (e) {
 			fwError = (e as Error).message;
 		} finally {
@@ -212,7 +211,7 @@
 		idracJobsLoading = true;
 		idracJobsError = '';
 		try {
-			idracJobs = await api.jobs.idrac(id);
+			idracJobs = (await api.jobs.idrac(id)) ?? [];
 			idracJobsLoaded = true;
 		} catch (e) {
 			idracJobsError = (e as Error).message;
@@ -283,7 +282,7 @@
 		});
 		const unsub2 = wsManager.on('job_update', (e: WSEvent) => {
 			if (e.server_id === id) {
-				api.jobs.forServer(id).then((j) => (localJobs = j));
+				api.jobs.forServer(id).then((j) => (localJobs = j ?? []));
 				if (tab === 'jobs') loadIdracJobs();
 			}
 		});

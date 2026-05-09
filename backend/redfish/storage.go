@@ -80,7 +80,7 @@ func (c *Client) GetStorage() ([]StorageDetail, error) {
 	}
 
 	const maxConcurrent = 10
-	var result []StorageDetail
+	result := make([]StorageDetail, 0, len(col.Members))
 	for _, ref := range col.Members {
 		ctrlPath := stripBaseURL(ref.ID)
 		var ctrl StorageController

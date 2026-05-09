@@ -110,7 +110,7 @@ func (h *BiosHandler) SetBiosSettings(c *gin.Context) {
 
 func (h *BiosHandler) GetPending(c *gin.Context) {
 	id := c.Param("id")
-	var jobs []models.Job
+	jobs := []models.Job{} // not nil — JSON `[]` instead of `null`
 	h.db.Select(&jobs, `SELECT * FROM jobs WHERE server_id = ? AND type = ? AND status IN ('queued','running')
 		ORDER BY created_at DESC`, id, string(models.JobTypeBiosConfig))
 	c.JSON(http.StatusOK, jobs)

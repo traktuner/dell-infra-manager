@@ -49,7 +49,7 @@ func (c *Client) GetFirmwareInventory() ([]FirmwareComponent, error) {
 	}
 	wg.Wait()
 
-	var result []FirmwareComponent
+	result := make([]FirmwareComponent, 0, len(components))
 	for _, comp := range components {
 		if comp.ID != "" {
 			result = append(result, comp)

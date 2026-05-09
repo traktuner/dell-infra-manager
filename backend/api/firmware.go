@@ -152,7 +152,9 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 
 	catalogForModel := redfish.FilterByModel(catalog, model)
 
-	var updates []AvailableUpdate
+	// Initialise as empty slice (not nil) so JSON marshals to `[]` rather than
+	// `null` — the frontend reduces over this and `null.length` would throw.
+	updates := make([]AvailableUpdate, 0)
 	for _, inst := range installed {
 		for _, cat := range catalogForModel {
 			if strings.EqualFold(cat.ComponentType, inst.Name) ||
@@ -224,7 +226,7 @@ func (h *FirmwareHandler) BulkQueueUpdate(c *gin.Context) {
 		return
 	}
 
-	var results []map[string]interface{}
+	results := make([]map[string]interface{}, 0, len(req.ServerIDs))
 	for _, id := range req.ServerIDs {
 		payload, _ := json.Marshal(models.FirmwareUpdatePayload{
 			Component:   req.Component,

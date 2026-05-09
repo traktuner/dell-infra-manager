@@ -26,7 +26,7 @@ func (c *Client) GetVirtualMedia() ([]VirtualMedia, error) {
 	if err := c.get("/Managers/iDRAC.Embedded.1/VirtualMedia", &col); err != nil {
 		return nil, err
 	}
-	var result []VirtualMedia
+	result := make([]VirtualMedia, 0, len(col.Members))
 	for _, ref := range col.Members {
 		var vm VirtualMedia
 		if err := c.get(stripBaseURL(ref.ID), &vm); err == nil {

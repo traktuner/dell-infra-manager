@@ -31,7 +31,7 @@
 		const results = await Promise.allSettled(servers.map((s) => api.cache.firmware(s.id)));
 		const inv = new Map<string, FirmwareComponent[]>();
 		results.forEach((r, i) => {
-			if (r.status === 'fulfilled') inv.set(servers[i].id, r.value);
+			if (r.status === 'fulfilled') inv.set(servers[i].id, r.value ?? []);
 		});
 		inventories = inv;
 		loading = false;
@@ -58,7 +58,9 @@
 		const serverErrors: string[] = [];
 		results.forEach((r, i) => {
 			if (r.status === 'fulfilled') {
-				upd.set(servers[i].id, r.value);
+				// Backend returns null for empty Go slices — coerce to [] so
+				// downstream .length / .reduce never crashes.
+				upd.set(servers[i].id, r.value ?? []);
 			} else {
 				serverErrors.push(`${servers[i].name}: ${(r.reason as Error).message}`);
 			}
@@ -95,7 +97,7 @@
 	}
 
 	const totalOutdated = $derived(
-		[...updates.values()].reduce((acc, list) => acc + list.length, 0)
+		[...updates.values()].reduce((acc, list) => acc + (list?.length ?? 0), 0)
 	);
 
 	const serversWithUpdates = $derived(servers.filter((s) => (updates.get(s.id)?.length ?? 0) > 0));
@@ -138,8 +140,8 @@
 		// re-fetch inventory and updates for one server (e.g. after queueing an update)
 		Promise.all([api.cache.firmware(serverId), api.firmware.available(serverId)]).then(
 			([inv, upd]) => {
-				inventories = new Map(inventories).set(serverId, inv);
-				updates = new Map(updates).set(serverId, upd);
+				inventories = new Map(inventories).set(serverId, inv ?? []);
+				updates = new Map(updates).set(serverId, upd ?? []);
 			}
 		);
 	}

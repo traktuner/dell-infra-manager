@@ -23,7 +23,7 @@ func NewServerHandler(db *sqlx.DB, hub *Hub) *ServerHandler {
 }
 
 func (h *ServerHandler) List(c *gin.Context) {
-	var servers []models.Server
+	servers := []models.Server{}
 	if err := h.db.Select(&servers, `SELECT * FROM servers ORDER BY name`); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

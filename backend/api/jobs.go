@@ -18,13 +18,13 @@ func NewJobsHandler(db *sqlx.DB, hub *Hub) *JobsHandler {
 }
 
 func (h *JobsHandler) GetServerJobs(c *gin.Context) {
-	var jobs []models.Job
+	jobs := []models.Job{}
 	h.db.Select(&jobs, `SELECT * FROM jobs WHERE server_id = ? ORDER BY created_at DESC`, c.Param("id"))
 	c.JSON(http.StatusOK, jobs)
 }
 
 func (h *JobsHandler) GetAllJobs(c *gin.Context) {
-	var jobs []models.Job
+	jobs := []models.Job{}
 	h.db.Select(&jobs, `SELECT * FROM jobs ORDER BY created_at DESC`)
 	c.JSON(http.StatusOK, jobs)
 }
