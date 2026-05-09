@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +31,29 @@ func NewFirmwareHandler(db *sqlx.DB, hub *Hub, cfg *config.Config) *FirmwareHand
 		catalogPath: cfg.Dell.CachePath,
 		catalogURL:  cfg.Dell.CatalogURL,
 	}
+}
+
+// loadCatalogWithSelfHeal parses the cached catalog. On parse failure it
+// assumes the cache is corrupt (truncated download, encoding mismatch from a
+// previous buggy version, etc.), forces an unconditional re-download, and
+// retries once. This is what makes "Check for Updates" robust without
+// requiring the user to manually delete /data/catalog.xml.gz.
+func (h *FirmwareHandler) loadCatalogWithSelfHeal() ([]redfish.CatalogComponent, error) {
+	catalog, err := redfish.LoadCatalog(h.catalogPath)
+	if err == nil {
+		return catalog, nil
+	}
+	log.Printf("catalog parse failed (%v) — forcing fresh download", err)
+
+	_ = os.Remove(h.catalogPath)
+	if dlErr := redfish.DownloadCatalog(h.catalogURL, h.catalogPath); dlErr != nil {
+		return nil, fmt.Errorf("re-download after parse failure: %w", dlErr)
+	}
+	catalog, err = redfish.LoadCatalog(h.catalogPath)
+	if err != nil {
+		return nil, fmt.Errorf("still unparseable after fresh download: %w", err)
+	}
+	return catalog, nil
 }
 
 // GetCatalogInfo exposes the locally-cached catalog's dateTime/version so the
@@ -108,7 +133,7 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 	var installed []redfish.FirmwareComponent
 	json.Unmarshal([]byte(*firmwareVal), &installed)
 
-	catalog, err := redfish.LoadCatalog(h.catalogPath)
+	catalog, err := h.loadCatalogWithSelfHeal()
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "catalog not available: " + err.Error()})
 		return

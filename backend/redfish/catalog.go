@@ -114,12 +114,14 @@ func downloadCatalog(catalogURL, cachePath string, conditional bool) (bool, erro
 
 // readCatalogBytes returns the catalog as a clean UTF-8 byte slice, regardless
 // of whether the file is gzipped or plain, and regardless of whether Dell ships
-// pure UTF-8 or Windows-1252 bytes (their XML declares UTF-8 but historically
-// contains characters like © ® ™ as 0xA9 0xAE 0x99 — Windows-1252).
+// pure UTF-8 or Windows-1252 bytes.
 //
-// Strategy: read everything, validate UTF-8, transcode from Windows-1252 if
-// not valid (Windows-1252 maps every 8-bit value, so transcoding is lossless
-// even for files that are already mostly ASCII).
+// Steps:
+//  1. Read the file (gzip-decompressed if applicable, plain otherwise).
+//  2. Transcode Windows-1252 → UTF-8 if the bytes aren't valid UTF-8 (Dell's
+//     XML declares UTF-8 but historically ships © ® ™ as 0xA9 0xAE 0x99).
+//  3. Strip any leading garbage before the first '<' — handles UTF-8 BOM,
+//     stray whitespace, accidental prefix bytes from a half-finished download.
 func readCatalogBytes(cachePath string) ([]byte, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
@@ -131,11 +133,8 @@ func readCatalogBytes(cachePath string) ([]byte, error) {
 	if gz, gzErr := gzip.NewReader(f); gzErr == nil {
 		defer gz.Close()
 		raw = gz
-	} else {
-		// Not gzipped (e.g., older download saved plain XML). Reset to start.
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return nil, err
-		}
+	} else if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+		return nil, seekErr
 	}
 
 	data, err := io.ReadAll(raw)
@@ -149,6 +148,12 @@ func readCatalogBytes(cachePath string) ([]byte, error) {
 			return nil, fmt.Errorf("transcode catalog: %w", err)
 		}
 		data = out
+	}
+
+	// Strip any bytes before the first '<' — Dell's catalog should start with
+	// '<?xml' or '<Manifest' but a stale download or BOM can leave junk there.
+	if idx := bytes.IndexByte(data, '<'); idx > 0 {
+		data = data[idx:]
 	}
 	return data, nil
 }
@@ -204,14 +209,24 @@ func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 
 // LoadCatalog parses the catalog and returns all components.
 func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
-	dec, err := newCatalogDecoder(cachePath)
+	data, err := readCatalogBytes(cachePath)
 	if err != nil {
 		return nil, fmt.Errorf("open catalog: %w", err)
 	}
 
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+
 	var cat catalog
 	if err := dec.Decode(&cat); err != nil {
-		return nil, fmt.Errorf("parse catalog XML: %w", err)
+		// Surface a sample of the bytes we tried to parse — without this,
+		// "expected element name after <" leaves the user guessing whether the
+		// file is HTML, gzip with the wrong header, half-downloaded, etc.
+		head := data
+		if len(head) > 120 {
+			head = head[:120]
+		}
+		return nil, fmt.Errorf("parse catalog XML (%d bytes, head=%q): %w", len(data), head, err)
 	}
 
 	result := make([]CatalogComponent, 0, len(cat.Components))

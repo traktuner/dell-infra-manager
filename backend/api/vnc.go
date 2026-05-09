@@ -89,13 +89,16 @@ func (h *VNCHandler) Enable(c *gin.Context) {
 		port = defaultVNCPort
 	}
 
-	// Reuse stored password if any; otherwise mint a fresh one.
+	// Reuse stored password if it's spec-compliant; otherwise mint a fresh one.
+	// iDRAC9 VNC passwords must be 1–8 ASCII characters — anything longer
+	// makes the PATCH fail with 400 Bad Request. Older builds of this app
+	// generated 16-char passwords; this length check forces a rotation.
 	var vncPass string
 	if s.VNCPassword != nil {
 		vncPass, _ = crypto.Decrypt(*s.VNCPassword)
 	}
-	if vncPass == "" {
-		vncPass = generatePassword(16)
+	if len(vncPass) == 0 || len(vncPass) > 8 {
+		vncPass = generatePassword(8)
 	}
 
 	if err := client.ConfigureVNC(port, vncPass); err != nil {

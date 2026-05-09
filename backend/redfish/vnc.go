@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 )
 
 // VNCStatus reflects what iDRAC currently has configured for VNCServer.1.
@@ -31,32 +32,52 @@ func (c *Client) GetVNCStatus() (*VNCStatus, error) {
 	}, nil
 }
 
-// ConfigureVNC enables VNC on iDRAC with the given port and password,
-// and explicitly disables SSL/TLS on the VNC channel.
+// ConfigureVNC enables VNC on iDRAC with the given port and password.
 //
-// SSL must be off because our backend opens a plain TCP socket to iDRAC
-// and proxies bytes verbatim to noVNC. With SSL enabled iDRAC sends a TLS
-// ClientHello as the first bytes — noVNC then aborts with
-// "unexpected data message" since those bytes aren't valid RFB.
+// Done in two PATCHes so the basic enable always succeeds even on iDRAC
+// firmware versions that don't accept our SSL setting:
+//  1. Enable + Port + Password — REQUIRED, fails the call if rejected.
+//  2. SSLEncryptionBitLength=Disabled — best-effort, logged but non-fatal.
+//     SSL must be off because our backend speaks plain TCP to iDRAC and
+//     pipes bytes verbatim to noVNC. With SSL on, iDRAC sends a TLS
+//     ClientHello which noVNC rejects as "unexpected data message".
 //
-// iDRAC applies the change immediately; no reboot needed.
+// iDRAC applies both changes immediately; no reboot needed.
 func (c *Client) ConfigureVNC(port int, password string) error {
-	body, _ := json.Marshal(map[string]any{
-		"Attributes": map[string]any{
-			"VNCServer.1.Enable":                 "Enabled",
-			"VNCServer.1.Port":                   port,
-			"VNCServer.1.Password":               password,
-			"VNCServer.1.SSLEncryptionBitLength": "Disabled",
-		},
-	})
+	if err := c.patchAttributes(map[string]any{
+		"VNCServer.1.Enable":   "Enabled",
+		"VNCServer.1.Port":     port,
+		"VNCServer.1.Password": password,
+	}); err != nil {
+		return err
+	}
+
+	// Best-effort: turn off SSL so plain RFB works through our proxy.
+	// Different firmware revisions accept different value formats for
+	// VNCServer.1.SSLEncryptionBitLength — try the modern string enum first,
+	// then the legacy integer. If neither lands, log and continue; noVNC will
+	// surface "unexpected data message" and the user can disable SSL manually.
+	for _, val := range []any{"Disabled", 0} {
+		if err := c.patchAttributes(map[string]any{
+			"VNCServer.1.SSLEncryptionBitLength": val,
+		}); err == nil {
+			return nil
+		}
+	}
+	log.Printf("redfish: VNC SSL disable rejected by iDRAC (non-fatal); KVM may show 'unexpected data message'")
+	return nil
+}
+
+func (c *Client) patchAttributes(attrs map[string]any) error {
+	body, _ := json.Marshal(map[string]any{"Attributes": attrs})
 	resp, err := c.patch(idracAttributesPath, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("patch iDRAC VNC: %w", err)
+		return fmt.Errorf("patch iDRAC attrs: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("iDRAC VNC configure (%d): %s", resp.StatusCode, b)
+		return fmt.Errorf("iDRAC PATCH (%d): %s", resp.StatusCode, b)
 	}
 	return nil
 }

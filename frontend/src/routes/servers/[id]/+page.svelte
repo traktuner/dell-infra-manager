@@ -172,8 +172,10 @@
 				api.bios.get(id),
 				api.bios.pending(id)
 			]);
-			biosAttributes = biosResp.Attributes;
-			biosPending = pending;
+			// Defensive: backend may return null for missing/empty fields.
+			// Object.keys(null) throws TypeError, so always coerce to {}/[].
+			biosAttributes = biosResp?.Attributes ?? {};
+			biosPending = pending ?? [];
 			biosLoaded = true;
 			// Fire-and-forget — UI updates reactively when registry arrives.
 			ensureBiosRegistry().catch(() => {});
