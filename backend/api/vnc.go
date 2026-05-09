@@ -50,13 +50,16 @@ func generatePassword(length int) string {
 	return string(b)
 }
 
-// Enable returns a usable VNC port + auth token for the server. Idempotent:
-//   - Reads current iDRAC VNC state via Redfish.
-//   - If iDRAC has VNC enabled AND we have the password stored → reuse.
-//   - Otherwise generates a fresh password, PATCHes iDRAC, stores the password.
+// Enable returns a usable VNC port + auth token. Always PATCHes iDRAC so the
+// SSL=Disabled enforcement is idempotent (without it, iDRAC's default
+// "Auto Negotiate" makes noVNC reject the stream as "unexpected data message").
 //
-// The port is whatever iDRAC currently has (or 5901 by default), so users who
-// have manually configured a different port don't get overridden.
+// Password handling: reuse the stored password if we have one, generate a new
+// one only on first call. This avoids surprising password rotations for users
+// who connect with other VNC clients in parallel.
+//
+// Port: whatever iDRAC currently has, or 5901 by default. Users who have
+// manually configured a different port don't get overridden.
 func (h *VNCHandler) Enable(c *gin.Context) {
 	id := c.Param("id")
 
@@ -65,12 +68,12 @@ func (h *VNCHandler) Enable(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
 	}
-	password, err := crypto.Decrypt(s.Password)
+	idracPass, err := crypto.Decrypt(s.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "credential decrypt failed"})
 		return
 	}
-	client := redfish.NewClient(s.Hostname, s.Port, s.Username, password, s.TLSVerify)
+	client := redfish.NewClient(s.Hostname, s.Port, s.Username, idracPass, s.TLSVerify)
 
 	status, err := client.GetVNCStatus()
 	if err != nil {
@@ -86,14 +89,15 @@ func (h *VNCHandler) Enable(c *gin.Context) {
 		port = defaultVNCPort
 	}
 
-	// Already enabled and we have a stored password → reuse without touching iDRAC.
-	if status.Enabled && s.VNCPassword != nil {
-		c.JSON(http.StatusOK, gin.H{"port": port, "token": mintToken(id, *s.VNCPassword)})
-		return
+	// Reuse stored password if any; otherwise mint a fresh one.
+	var vncPass string
+	if s.VNCPassword != nil {
+		vncPass, _ = crypto.Decrypt(*s.VNCPassword)
+	}
+	if vncPass == "" {
+		vncPass = generatePassword(16)
 	}
 
-	// Need to (re)configure: generate password and PATCH iDRAC.
-	vncPass := generatePassword(16)
 	if err := client.ConfigureVNC(port, vncPass); err != nil {
 		log.Printf("vnc[%s] configure failed: %v", s.Name, err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -102,6 +106,7 @@ func (h *VNCHandler) Enable(c *gin.Context) {
 		})
 		return
 	}
+
 	encPass, err := crypto.Encrypt(vncPass)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encrypt failed"})

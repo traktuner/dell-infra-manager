@@ -31,14 +31,22 @@ func (c *Client) GetVNCStatus() (*VNCStatus, error) {
 	}, nil
 }
 
-// ConfigureVNC enables VNC on iDRAC with the given port and password.
-// iDRAC applies the change immediately (no reboot needed).
+// ConfigureVNC enables VNC on iDRAC with the given port and password,
+// and explicitly disables SSL/TLS on the VNC channel.
+//
+// SSL must be off because our backend opens a plain TCP socket to iDRAC
+// and proxies bytes verbatim to noVNC. With SSL enabled iDRAC sends a TLS
+// ClientHello as the first bytes — noVNC then aborts with
+// "unexpected data message" since those bytes aren't valid RFB.
+//
+// iDRAC applies the change immediately; no reboot needed.
 func (c *Client) ConfigureVNC(port int, password string) error {
 	body, _ := json.Marshal(map[string]any{
 		"Attributes": map[string]any{
-			"VNCServer.1.Enable":   "Enabled",
-			"VNCServer.1.Port":     port,
-			"VNCServer.1.Password": password,
+			"VNCServer.1.Enable":                 "Enabled",
+			"VNCServer.1.Port":                   port,
+			"VNCServer.1.Password":               password,
+			"VNCServer.1.SSLEncryptionBitLength": "Disabled",
 		},
 	})
 	resp, err := c.patch(idracAttributesPath, bytes.NewReader(body))
