@@ -198,6 +198,44 @@ rc-update add dell-infra-manager default >/dev/null
 rc-service dell-infra-manager start >/dev/null
 "
 
+# ── Console banner (/etc/issue) ──────────────────────────────────────────────
+# Shows connection info on the LXC console (pct console / pct enter login).
+# Re-rendered at every boot via /etc/local.d after the network is up, so the
+# IP is always current.
+pct exec "$CTID" -- sh -c "cat > /usr/local/bin/dell-infra-manager-banner <<'BANNER'
+#!/bin/sh
+# Generates /etc/issue with current connection info.
+IP=\$(ip -4 -o addr show eth0 2>/dev/null | awk '{split(\$4,a,\"/\"); print a[1]; exit}')
+[ -z \"\$IP\" ] && IP='(no network yet)'
+HOST=\$(hostname)
+ALPINE=\$(cat /etc/alpine-release 2>/dev/null || echo '?')
+
+{
+  printf '\n'
+  printf '   \033[1;36mDell iDRAC Manager\033[0m   ·   Alpine %s\n' \"\$ALPINE\"
+  printf '   ────────────────────────────────────────────\n'
+  printf '\n'
+  printf '   Web UI:    \033[1;32mhttp://%s:8080\033[0m\n' \"\$IP\"
+  printf '\n'
+  printf '   Hostname:  %s\n' \"\$HOST\"
+  printf '   IP:        %s\n' \"\$IP\"
+  printf '   Logs:      tail -f /var/log/dell-infra-manager.log\n'
+  printf '   Service:   rc-service dell-infra-manager status|restart\n'
+  printf '\n'
+} > /etc/issue
+BANNER
+chmod +x /usr/local/bin/dell-infra-manager-banner
+
+# Run at every boot, after network is up. /etc/local.d/*.start is invoked by
+# the OpenRC 'local' service which depends on net.
+mkdir -p /etc/local.d
+ln -sf /usr/local/bin/dell-infra-manager-banner /etc/local.d/zz-banner.start
+rc-update add local default >/dev/null 2>&1 || true
+
+# Render once now so /etc/issue is correct before the first pct console.
+/usr/local/bin/dell-infra-manager-banner
+"
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 sleep 2
 IP_ADDR=$(pct exec "$CTID" -- ip -4 -o addr show eth0 | awk '{split($4,a,"/"); print a[1]}' || true)
