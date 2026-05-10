@@ -21,8 +21,8 @@ RAM_MB=${RAM_MB:-256}                       # 256 is plenty; 128 also works
 SWAP_MB=${SWAP_MB:-128}
 CORES=${CORES:-1}
 DISK_GB=${DISK_GB:-2}                       # 2 GB is comfortable for the catalog
-STORAGE=${STORAGE:-local-lvm}
-TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-local}
+STORAGE=${STORAGE:-}                        # blank → auto-detect first active rootdir-capable storage
+TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-}      # blank → auto-detect first active vztmpl-capable storage
 BRIDGE=${BRIDGE:-vmbr0}
 IP=${IP:-dhcp}                              # or e.g. 192.168.1.50/24
 GATEWAY=${GATEWAY:-}                        # required only if IP is static
@@ -46,6 +46,36 @@ fi
 [[ $EUID -eq 0 ]] || { echo "✗ Run as root on the Proxmox host"; exit 1; }
 command -v pct      >/dev/null || { echo "✗ pct not found — not a Proxmox host?"; exit 1; }
 command -v pvesh    >/dev/null || { echo "✗ pvesh not found — not a Proxmox host?"; exit 1; }
+command -v pvesm    >/dev/null || { echo "✗ pvesm not found — not a Proxmox host?"; exit 1; }
+
+# ── Storage auto-detect ──────────────────────────────────────────────────────
+# Different Proxmox installs default to different storages: 'local-lvm' for the
+# stock ext4+LVM setup, 'local-zfs' for ZFS-on-root, plain 'local' (dir) on
+# minimal installs, plus whatever pools the user added. We pick the first
+# *active* storage that supports the right content type unless the caller
+# overrode STORAGE / TEMPLATE_STORAGE.
+pick_storage() {
+  # $1 = required content type (rootdir | vztmpl)
+  pvesm status -content "$1" 2>/dev/null \
+    | awk 'NR>1 && $3=="active" {print $1; exit}'
+}
+
+if [[ -z "$STORAGE" ]]; then
+  STORAGE=$(pick_storage rootdir)
+  [[ -n "$STORAGE" ]] || {
+    echo "✗ No active container-capable storage found. Run 'pvesm status' and"
+    echo "  set STORAGE=<name> manually. Available storages:"
+    pvesm status
+    exit 1
+  }
+fi
+if [[ -z "$TEMPLATE_STORAGE" ]]; then
+  TEMPLATE_STORAGE=$(pick_storage vztmpl)
+  [[ -n "$TEMPLATE_STORAGE" ]] || {
+    echo "✗ No template-capable storage found. Set TEMPLATE_STORAGE=<name>."
+    exit 1
+  }
+fi
 
 # ── Container ID ─────────────────────────────────────────────────────────────
 if [[ -z "$CTID" ]]; then
@@ -57,8 +87,10 @@ if pct status "$CTID" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Will create CTID $CTID ($HOSTNAME) on $STORAGE"
-echo "  RAM ${RAM_MB} MB · ${CORES} core(s) · ${DISK_GB} GB disk · IP $IP"
+echo "→ Will create CTID $CTID ($HOSTNAME)"
+echo "  storage:    $STORAGE  (template: $TEMPLATE_STORAGE)"
+echo "  resources:  ${RAM_MB} MB RAM · ${CORES} core(s) · ${DISK_GB} GB disk"
+echo "  network:    bridge=$BRIDGE · ip=$IP"
 echo ""
 
 # ── Alpine template ──────────────────────────────────────────────────────────
