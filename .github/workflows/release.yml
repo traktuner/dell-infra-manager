@@ -63,7 +63,7 @@ jobs:
             -o ../dell-infra-manager-linux-${{ matrix.goarch }} .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dell-infra-manager-linux-${{ matrix.goarch }}
           path: dell-infra-manager-linux-${{ matrix.goarch }}
@@ -76,7 +76,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
