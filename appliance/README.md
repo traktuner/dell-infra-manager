@@ -22,7 +22,7 @@ Alpine's `busybox` and OpenRC. Restoring after a host crash is just
 Run on the **Proxmox PVE host shell** (not inside an existing VM):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/main/appliance/install-proxmox.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/master/appliance/install-proxmox.sh)
 ```
 
 The script:

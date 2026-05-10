@@ -11,7 +11,7 @@ embedded SvelteKit UI, talks Redfish straight to iDRAC.
 Run on your Proxmox PVE host shell:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/main/appliance/install-proxmox.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/master/appliance/install-proxmox.sh)
 ```
 
 Boots in ~5 seconds, ~80 MB on disk, ~50 MB RAM idle. Survives reboots of

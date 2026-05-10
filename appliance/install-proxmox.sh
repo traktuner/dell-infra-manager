@@ -4,7 +4,7 @@
 # dell-infra-manager. Run this on your Proxmox PVE host.
 #
 # Quick start:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/main/appliance/install-proxmox.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/master/appliance/install-proxmox.sh)
 #
 # Customise via env vars:
 #   CTID=200 HOSTNAME=dell-mgr IP=192.168.1.50/24 GATEWAY=192.168.1.1 \
