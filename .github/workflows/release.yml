@@ -1,0 +1,96 @@
+name: Release binaries
+
+# Builds static Linux binaries (amd64 + arm64) and attaches them to the GitHub
+# Release that the v* tag created. The Proxmox installer script in
+# appliance/install-proxmox.sh downloads dell-infra-manager-linux-amd64 from
+# the latest release.
+#
+# This is independent from the Docker image build (docker.yml). Both run on
+# the same v* tag.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to upload release assets
+
+jobs:
+  build:
+    name: Build ${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # ── Frontend → static SPA ────────────────────────────────────────────
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # ── Backend → static binary with embedded SPA ─────────────────────────
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache-dependency-path: backend/go.sum
+
+      - name: Stage frontend build inside backend
+        run: |
+          mkdir -p backend/frontend/dist
+          cp -r frontend/build/* backend/frontend/dist/
+
+      - name: Build static binary
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -ldflags="-s -w" \
+            -o ../dell-infra-manager-linux-${{ matrix.goarch }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dell-infra-manager-linux-${{ matrix.goarch }}
+          path: dell-infra-manager-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  release:
+    name: Attach binaries to release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compute SHA-256 sums
+        working-directory: artifacts
+        run: |
+          sha256sum dell-infra-manager-linux-* > SHA256SUMS
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/dell-infra-manager-linux-amd64
+            artifacts/dell-infra-manager-linux-arm64
+            artifacts/SHA256SUMS
+          fail_on_unmatched_files: true
