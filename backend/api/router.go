@@ -88,9 +88,10 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, n *notifier.Notifier, 
 		api.POST("/servers/:id/vnc/reset",    vnc.Reset)   // force re-configure on next /enable
 
 		// Settings (SMTP / notifications)
-		api.GET("/settings/notifications",   settings.GetNotifications)
-		api.PUT("/settings/notifications",   settings.UpdateNotifications)
-		api.POST("/settings/notifications/test", settings.TestNotifications)
+		api.GET("/settings/notifications",            settings.GetNotifications)
+		api.PUT("/settings/notifications",            settings.UpdateNotifications)
+		api.POST("/settings/notifications/test",      settings.TestNotifications)
+		api.POST("/settings/notifications/digest-now", settings.SendDigestNow)
 
 		// Global views
 		api.GET("/jobs", jobs.GetAllJobs)

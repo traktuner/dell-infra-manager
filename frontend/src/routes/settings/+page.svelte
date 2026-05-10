@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, type NotificationSettings, type NotificationSettingsInput } from '$lib/api';
-	import { Mail, Send, Save, AlertCircle, CheckCircle2 } from '@lucide/svelte';
+	import { Mail, Send, Save, AlertCircle, CheckCircle2, RefreshCw } from '@lucide/svelte';
 
 	// State for the form. Loaded from backend on mount; password is never
 	// returned, so the input is always blank — has_password just tells us
@@ -9,6 +9,7 @@
 	let loaded = $state(false);
 	let saving = $state(false);
 	let testing = $state(false);
+	let triggering = $state(false);
 	let banner = $state<{ kind: 'ok' | 'err'; msg: string } | null>(null);
 
 	let enabled            = $state(false);
@@ -108,6 +109,19 @@
 			banner = { kind: 'err', msg: (e as Error).message };
 		} finally {
 			testing = false;
+		}
+	}
+
+	async function triggerDigest() {
+		triggering = true;
+		banner = null;
+		try {
+			await api.settings.sendDigestNow();
+			banner = { kind: 'ok', msg: 'Firmware digest triggered. You\'ll receive an email within a few seconds if there are outdated components and the toggle is enabled.' };
+		} catch (e) {
+			banner = { kind: 'err', msg: (e as Error).message };
+		} finally {
+			triggering = false;
 		}
 	}
 
@@ -241,6 +255,20 @@
 						Firmware updates available
 					</label>
 				</div>
+				{#if onFirmwareUpdates}
+					<div class="mt-2 px-2 text-xs text-zinc-500">
+						Sent once per day as a single combined email. The scan runs ~1&nbsp;hour after
+						the daily Dell-catalog refresh.
+						<button
+							onclick={triggerDigest}
+							disabled={triggering || !enabled}
+							title="Run the digest scan now (no schedule wait). Sends only if there are outdated components."
+							class="ml-2 inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 disabled:opacity-50">
+							<RefreshCw class="w-3 h-3 {triggering ? 'animate-spin' : ''}" />
+							{triggering ? 'Sending…' : 'Send digest now'}
+						</button>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Action buttons -->

@@ -53,6 +53,11 @@ func main() {
 	pool := worker.New(db, hub, cfg, notif)
 	go pool.Run(ctx)
 
+	// Wire the "Send digest now" Settings button to the worker's digest
+	// runner. Done here (not in api.NewRouter) to avoid an api → worker
+	// import cycle.
+	api.SetFirmwareDigestRunner(pool.RunFirmwareDigest)
+
 	// HTTP router
 	router := api.NewRouter(db, hub, cfg, notif, staticFiles)
 

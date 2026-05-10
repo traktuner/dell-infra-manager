@@ -77,6 +77,23 @@ func (h *SettingsHandler) UpdateNotifications(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// firmwareDigestRunner is set by main.go to wire the daily firmware-digest
+// runner into this handler so the "Send digest now" button can trigger it
+// on demand, without us pulling worker into api as a dep cycle.
+var firmwareDigestRunner func() = func() {}
+
+// SetFirmwareDigestRunner registers the function the "Send digest now" button
+// calls. Wired up in main.go after both the worker and the API are constructed.
+func SetFirmwareDigestRunner(fn func()) { firmwareDigestRunner = fn }
+
+// SendDigestNow fires the firmware-update digest immediately, ignoring the
+// daily schedule. Useful for "did my SMTP setup work?" testing without
+// waiting until tomorrow morning.
+func (h *SettingsHandler) SendDigestNow(c *gin.Context) {
+	go firmwareDigestRunner()
+	c.JSON(http.StatusAccepted, gin.H{"ok": true})
+}
+
 // TestNotifications fires off a test email using the request body's settings —
 // useful before saving. If smtp_password is empty we use the stored one.
 func (h *SettingsHandler) TestNotifications(c *gin.Context) {

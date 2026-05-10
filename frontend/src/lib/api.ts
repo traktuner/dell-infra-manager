@@ -163,7 +163,12 @@ export const api = {
 		updateNotifications: (data: NotificationSettingsInput) =>
 			request<{ ok: boolean }>('PUT', '/settings/notifications', data),
 		testNotifications: (data: NotificationSettingsInput) =>
-			request<{ ok: boolean }>('POST', '/settings/notifications/test', data)
+			request<{ ok: boolean }>('POST', '/settings/notifications/test', data),
+		/** Triggers the firmware-update digest immediately, ignoring the daily
+		 *  schedule. Useful for verifying SMTP setup without waiting until
+		 *  tomorrow morning. Sends only if there are outdated components. */
+		sendDigestNow: () =>
+			request<{ ok: boolean }>('POST', '/settings/notifications/digest-now')
 	}
 };
 

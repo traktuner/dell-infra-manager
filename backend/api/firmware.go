@@ -113,21 +113,10 @@ func (h *FirmwareHandler) GetInventory(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", []byte(*val))
 }
 
-// AvailableUpdate is one row of catalog comparison data — always present for
-// every component that we successfully matched against the catalog, regardless
-// of whether the installed version is current or outdated.
-//
-// Outdated == false means "we have catalog data for this component and the
-// installed version equals the catalog version" — useful so the UI can show
-// the release date instead of just "—".
-type AvailableUpdate struct {
-	Component        string `json:"component"`
-	InstalledVersion string `json:"installed_version"`
-	AvailableVersion string `json:"available_version"`
-	ReleaseDate      string `json:"release_date"`
-	CatalogPath      string `json:"catalog_path"`
-	Outdated         bool   `json:"outdated"`
-}
+// AvailableUpdate is the JSON-serialised row returned by /firmware/available.
+// It mirrors redfish.ComponentStatus exactly — kept as a separate type so the
+// API contract stays in this package.
+type AvailableUpdate = redfish.ComponentStatus
 
 func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 	id := c.Param("id")
@@ -182,46 +171,7 @@ func (h *FirmwareHandler) GetAvailable(c *gin.Context) {
 		}
 	}
 
-	catalogForModel := redfish.FilterByModel(catalog, model)
-
-	// Build a lookup: componentID → newest catalog component for that ID.
-	// This is how Dell's own DRM matches inventory against catalog: every
-	// installed component carries a SoftwareId (e.g. "159" for BIOS) and the
-	// catalog SoftwareComponent declares which IDs it covers via <SupportedDevices>.
-	// Matching by display name or ComponentType, as we did before, was unreliable
-	// for anything beyond BIOS/iDRAC.
-	byComponentID := make(map[string]redfish.CatalogComponent, len(catalogForModel))
-	for _, cat := range catalogForModel {
-		for _, cid := range cat.ComponentIDs {
-			existing, ok := byComponentID[cid]
-			if !ok || cat.ReleaseDate > existing.ReleaseDate {
-				byComponentID[cid] = cat
-			}
-		}
-	}
-
-	// Emit a row for every successfully-matched component (outdated AND
-	// up-to-date). The Outdated flag drives UI rendering. Components without a
-	// catalog match are not included at all — frontend renders them as "—".
-	updates := make([]AvailableUpdate, 0)
-	for _, inst := range installed {
-		if inst.SoftwareId == "" {
-			continue
-		}
-		cat, ok := byComponentID[inst.SoftwareId]
-		if !ok {
-			continue
-		}
-		updates = append(updates, AvailableUpdate{
-			Component:        inst.Name,
-			InstalledVersion: inst.Version,
-			AvailableVersion: cat.Version,
-			ReleaseDate:      cat.ReleaseDate,
-			CatalogPath:      cat.Path,
-			Outdated:         cat.Version != inst.Version,
-		})
-	}
-	c.JSON(http.StatusOK, updates)
+	c.JSON(http.StatusOK, redfish.CompareInventory(installed, catalog, model))
 }
 
 type firmwareUpdateRequest struct {

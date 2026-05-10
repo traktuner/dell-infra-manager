@@ -34,6 +34,7 @@ func New(db *sqlx.DB, hub *api.Hub, cfg *config.Config, n *notifier.Notifier) *P
 func (p *Pool) Run(ctx context.Context) {
 	go p.catalogUpdater(ctx)
 	go p.firmwareJobWorker(ctx)
+	go p.firmwareDigestWorker(ctx)
 	p.serverWatcher(ctx)
 }
 
