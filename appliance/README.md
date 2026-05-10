@@ -51,7 +51,7 @@ All defaults can be overridden via env vars before the curl pipe:
 
 ```bash
 CTID=200 \
-HOSTNAME=oobm \
+CT_HOSTNAME=oobm \
 IP=192.168.1.50/24 \
 GATEWAY=192.168.1.1 \
 RAM_MB=512 \
@@ -64,20 +64,22 @@ Available variables and their defaults:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `CTID`             | next free | container ID |
-| `HOSTNAME`         | `dell-infra-manager` | LXC hostname |
+| `CTID`             | next free CTID via `pvesh get /cluster/nextid` | container ID |
+| `CT_HOSTNAME`      | `dell-infra-manager` | LXC hostname (NOT `HOSTNAME` — that's a bash builtin) |
 | `RAM_MB`           | `256` | min ~128 MB works |
 | `SWAP_MB`          | `128` | |
 | `CORES`            | `1` | bumping doesn't help, app is mostly idle |
 | `DISK_GB`          | `2` | catalog cache is ~80 MB; 2 GB is comfortable |
-| `STORAGE`          | `local-lvm` | `local-zfs`, `local`, etc. |
-| `BRIDGE`           | `vmbr0` | |
+| `STORAGE`          | first active rootdir-capable | `local-lvm`, `local-zfs`, `local`, NFS pools, … |
+| `TEMPLATE_STORAGE` | first active vztmpl-capable | usually `local` |
+| `BRIDGE`           | first PVE bridge (usually `vmbr0`) | override e.g. `vmbr1`, `vmbr2` |
 | `IP`               | `dhcp` | or e.g. `192.168.1.50/24` |
 | `GATEWAY`          |  | required if `IP` is static |
 | `ALPINE_VER`       | `3.23` | |
 | `ONBOOT`           | `1` | start with Proxmox |
 | `UNPRIVILEGED`     | `1` | rootless container |
-| `BINARY_URL`       | latest GitHub Release | for pinning to a specific version |
+| `BINARY_URL`       | latest GitHub Release for the host's CPU arch (`uname -m`) | override to pin a specific version |
+| `APP_VERSION`      | `latest` | or e.g. `v0.1.0` for a pinned tag |
 
 ## Common operations
 

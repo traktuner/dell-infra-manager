@@ -1,29 +1,35 @@
 #!/usr/bin/env bash
 #
 # install-proxmox.sh — create a lightweight LXC container that runs
-# dell-infra-manager. Run this on your Proxmox PVE host.
+# dell-infra-manager. Run on any Proxmox PVE host. No assumptions about
+# storage layout, network bridge naming, or CPU architecture.
 #
 # Quick start:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/traktuner/dell-infra-manager/master/appliance/install-proxmox.sh)
 #
 # Customise via env vars:
-#   CTID=200 HOSTNAME=dell-mgr IP=192.168.1.50/24 GATEWAY=192.168.1.1 \
+#   CT_HOSTNAME=dell-mgr IP=192.168.1.50/24 GATEWAY=192.168.1.1 \
 #     bash <(curl -fsSL …)
 #
-# All defaults below are sensible for a homelab; everything can be overridden.
+# Everything is auto-detected by default; overrides are optional.
 
 set -euo pipefail
 
-# ── Defaults ─────────────────────────────────────────────────────────────────
+# Bash inherits $HOSTNAME from the host's environment — using HOSTNAME as our
+# variable name would mean the container always inherits the PVE host's name.
+# Clear it once and use a dedicated variable for the container hostname.
+unset HOSTNAME
+
+# ── Defaults (everything overridable via env) ────────────────────────────────
 CTID=${CTID:-}                              # blank → auto-pick next free
-HOSTNAME=${HOSTNAME:-dell-infra-manager}
+CT_HOSTNAME=${CT_HOSTNAME:-dell-infra-manager}
 RAM_MB=${RAM_MB:-256}                       # 256 is plenty; 128 also works
 SWAP_MB=${SWAP_MB:-128}
 CORES=${CORES:-1}
 DISK_GB=${DISK_GB:-2}                       # 2 GB is comfortable for the catalog
-STORAGE=${STORAGE:-}                        # blank → auto-detect first active rootdir-capable storage
-TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-}      # blank → auto-detect first active vztmpl-capable storage
-BRIDGE=${BRIDGE:-vmbr0}
+STORAGE=${STORAGE:-}                        # blank → auto-detect first rootdir-capable
+TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-}      # blank → auto-detect first vztmpl-capable
+BRIDGE=${BRIDGE:-}                          # blank → auto-detect first PVE bridge (usually vmbr0)
 IP=${IP:-dhcp}                              # or e.g. 192.168.1.50/24
 GATEWAY=${GATEWAY:-}                        # required only if IP is static
 ALPINE_VER=${ALPINE_VER:-3.23}
@@ -33,13 +39,21 @@ UNPRIVILEGED=${UNPRIVILEGED:-1}
 REPO=${REPO:-traktuner/dell-infra-manager}
 APP_VERSION=${APP_VERSION:-latest}
 
+# Detect the Proxmox host's architecture so we pull the matching binary.
+# Proxmox runs on x86_64 in 99 % of cases but ARM PVE exists.
+case "$(uname -m)" in
+  x86_64|amd64)        BIN_ARCH=amd64 ;;
+  aarch64|arm64)       BIN_ARCH=arm64 ;;
+  *) echo "✗ Unsupported host architecture: $(uname -m)"; exit 1 ;;
+esac
+
 # GitHub release URL conventions:
 #   latest:    /releases/latest/download/<asset>
 #   pinned:    /releases/download/<tag>/<asset>
 if [[ "$APP_VERSION" == "latest" ]]; then
-  BINARY_URL=${BINARY_URL:-https://github.com/${REPO}/releases/latest/download/dell-infra-manager-linux-amd64}
+  BINARY_URL=${BINARY_URL:-https://github.com/${REPO}/releases/latest/download/dell-infra-manager-linux-${BIN_ARCH}}
 else
-  BINARY_URL=${BINARY_URL:-https://github.com/${REPO}/releases/download/${APP_VERSION}/dell-infra-manager-linux-amd64}
+  BINARY_URL=${BINARY_URL:-https://github.com/${REPO}/releases/download/${APP_VERSION}/dell-infra-manager-linux-${BIN_ARCH}}
 fi
 
 # ── Sanity ───────────────────────────────────────────────────────────────────
@@ -77,6 +91,17 @@ if [[ -z "$TEMPLATE_STORAGE" ]]; then
   }
 fi
 
+# ── Bridge auto-detect ───────────────────────────────────────────────────────
+# vmbr0 is conventional but not guaranteed (some installs use vmbr1, OVS
+# bridges, etc.). Pick the first bridge if no override.
+if [[ -z "$BRIDGE" ]]; then
+  BRIDGE=$(ip -br link show type bridge 2>/dev/null | awk 'NR==1 {print $1}')
+  [[ -n "$BRIDGE" ]] || {
+    echo "✗ No network bridge found. Configure one in Proxmox or set BRIDGE=<name>."
+    exit 1
+  }
+fi
+
 # ── Container ID ─────────────────────────────────────────────────────────────
 if [[ -z "$CTID" ]]; then
   CTID=$(pvesh get /cluster/nextid)
@@ -87,7 +112,7 @@ if pct status "$CTID" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Will create CTID $CTID ($HOSTNAME)"
+echo "→ Will create CTID $CTID ($CT_HOSTNAME)"
 echo "  storage:    $STORAGE  (template: $TEMPLATE_STORAGE)"
 echo "  resources:  ${RAM_MB} MB RAM · ${CORES} core(s) · ${DISK_GB} GB disk"
 echo "  network:    bridge=$BRIDGE · ip=$IP"
@@ -118,7 +143,7 @@ fi
 # ── Create the container ─────────────────────────────────────────────────────
 echo "→ Creating LXC…"
 pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_FILE}" \
-  --hostname    "$HOSTNAME" \
+  --hostname    "$CT_HOSTNAME" \
   --memory      "$RAM_MB" \
   --swap        "$SWAP_MB" \
   --cores       "$CORES" \
@@ -182,7 +207,7 @@ cat <<EOF
 ✓ Dell iDRAC Manager appliance is up.
 
   CTID:        $CTID
-  Hostname:    $HOSTNAME
+  Hostname:    $CT_HOSTNAME
   IP:          ${IP_ADDR:-<DHCP pending — check pct exec $CTID -- ip a>}
   Web UI:      http://${IP_ADDR:-<container-ip>}:8080
 
