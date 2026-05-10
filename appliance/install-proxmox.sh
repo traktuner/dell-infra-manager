@@ -198,6 +198,78 @@ rc-update add dell-infra-manager default >/dev/null
 rc-service dell-infra-manager start >/dev/null
 "
 
+# ── Update script (in-container) ─────────────────────────────────────────────
+# Installs /usr/local/bin/dell-infra-manager-update so the user can run a
+# single command (from PVE host: `pct exec <CTID> -- dell-infra-manager-update`)
+# to pull the newest binary, replace it atomically, restart, and rollback on
+# failure. /data is never touched — DB, master key, and catalog cache survive.
+#
+# The URL points to /releases/latest so updates are always to the newest tag,
+# regardless of which version the user originally installed.
+LATEST_URL="https://github.com/${REPO}/releases/latest/download/dell-infra-manager-linux-${BIN_ARCH}"
+pct exec "$CTID" -- sh -c "cat > /usr/local/bin/dell-infra-manager-update <<'UPDATE'
+#!/bin/sh
+# Update dell-infra-manager to the latest release. Atomic, with rollback.
+# Override URL via env: \\\$BINARY_URL.
+set -eu
+
+URL=\"\${BINARY_URL:-${LATEST_URL}}\"
+BIN=/opt/dell-infra-manager/dell-infra-manager
+NEW=/opt/dell-infra-manager/dell-infra-manager.new
+PREV=/opt/dell-infra-manager/dell-infra-manager.previous
+
+echo \"→ Fetching: \$URL\"
+wget -qO \"\$NEW\" \"\$URL\"
+
+# Sanity-check the download — must be ELF and reasonably sized.
+SIZE=\$(stat -c %s \"\$NEW\" 2>/dev/null || echo 0)
+if [ \"\$SIZE\" -lt 5000000 ]; then
+  echo \"✗ Downloaded file is only \$SIZE bytes — likely a 404 HTML page.\"
+  rm -f \"\$NEW\"
+  exit 1
+fi
+MAGIC=\$(head -c 4 \"\$NEW\" | od -An -c | tr -d ' \\n')
+if [ \"\$MAGIC\" != '177ELF' ]; then
+  echo \"✗ Downloaded file is not a Linux binary (head=\$MAGIC).\"
+  rm -f \"\$NEW\"
+  exit 1
+fi
+
+OLD_SIZE=\$(stat -c %s \"\$BIN\" 2>/dev/null || echo 0)
+echo \"  current: \$OLD_SIZE bytes  →  new: \$SIZE bytes\"
+
+if [ \"\$OLD_SIZE\" = \"\$SIZE\" ]; then
+  if cmp -s \"\$BIN\" \"\$NEW\"; then
+    echo \"✓ Already on the latest version. No change.\"
+    rm -f \"\$NEW\"
+    exit 0
+  fi
+fi
+
+echo \"→ Restarting service with new binary…\"
+cp -p \"\$BIN\" \"\$PREV\"
+chmod +x \"\$NEW\"
+mv \"\$NEW\" \"\$BIN\"
+rc-service dell-infra-manager restart >/dev/null
+
+# Health check — rollback if app doesn't come up within 15 s.
+for i in \$(seq 1 15); do
+  if wget -q --spider http://localhost:8080/api/v1/dashboard 2>/dev/null; then
+    echo \"✓ Update OK. Previous binary kept at \$PREV (delete when satisfied).\"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo \"✗ Service didn't come up after update — rolling back…\"
+mv \"\$PREV\" \"\$BIN\"
+rc-service dell-infra-manager restart >/dev/null
+echo \"  Rolled back. Run with --debug or check /var/log/dell-infra-manager.log.\"
+exit 1
+UPDATE
+chmod +x /usr/local/bin/dell-infra-manager-update
+"
+
 # ── Console banner (/etc/issue) ──────────────────────────────────────────────
 # Shows connection info on the LXC console (pct console / pct enter login).
 # Re-rendered at every boot via /etc/local.d after the network is up, so the
@@ -253,11 +325,11 @@ Common operations:
   Logs:        pct exec $CTID -- tail -f /var/log/dell-infra-manager.log
   Restart:     pct exec $CTID -- rc-service dell-infra-manager restart
   Shell:       pct enter $CTID
-  Update:      pct exec $CTID -- sh -c 'wget -qO /opt/dell-infra-manager/dell-infra-manager.new "$BINARY_URL" && \\
-                 mv /opt/dell-infra-manager/dell-infra-manager.new /opt/dell-infra-manager/dell-infra-manager && \\
-                 chmod +x /opt/dell-infra-manager/dell-infra-manager && \\
-                 rc-service dell-infra-manager restart'
+  Update:      pct exec $CTID -- dell-infra-manager-update
 
-Persistent data lives in /data inside the container (DB, master.key, catalog cache).
-Back it up with:  pct exec $CTID -- tar czf - /data > dell-infra-manager-data.tgz
+Persistent data lives in /data inside the container — DB, master.key,
+catalog cache, all settings. Updates only swap the binary; /data is never
+touched, even if an update fails (the script auto-rolls-back).
+
+Backup:      pct exec $CTID -- tar -C /data -czf - . > dell-infra-manager-data.tgz
 EOF

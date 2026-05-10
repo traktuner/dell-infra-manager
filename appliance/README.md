@@ -93,16 +93,36 @@ Available variables and their defaults:
 
 ## Updating
 
-Re-run the same command — it pulls the latest binary and restarts the service:
+The installer bakes an update command into the container. From the PVE host:
 
 ```bash
-pct exec <CTID> -- sh -c '
-  wget -qO /opt/dell-infra-manager/dell-infra-manager.new \
-    https://github.com/traktuner/dell-infra-manager/releases/latest/download/dell-infra-manager-linux-amd64 &&
-  mv /opt/dell-infra-manager/dell-infra-manager.new /opt/dell-infra-manager/dell-infra-manager &&
-  chmod +x /opt/dell-infra-manager/dell-infra-manager &&
-  rc-service dell-infra-manager restart
-'
+pct exec <CTID> -- dell-infra-manager-update
+```
+
+What it does:
+
+1. Downloads the latest release binary for the host's CPU architecture.
+2. Sanity-checks it (must be ≥ 5 MB and start with the ELF magic number — protects
+   against accidentally installing a 404 HTML page).
+3. Backs up the current binary to `…/dell-infra-manager.previous`.
+4. Atomic swap, restart the service.
+5. Health-checks the HTTP endpoint within 15 seconds.
+   **If the new version fails to come up, automatically rolls back to the previous binary.**
+
+`/data` is never touched — DB, master.key, catalog cache, all configured servers
+and SMTP settings persist across updates.
+
+To pin a specific version instead of `latest`:
+
+```bash
+BINARY_URL=https://github.com/traktuner/dell-infra-manager/releases/download/v0.2.0/dell-infra-manager-linux-amd64 \
+  pct exec <CTID> -- dell-infra-manager-update
+```
+
+To rollback manually after a successful update:
+
+```bash
+pct exec <CTID> -- sh -c 'mv /opt/dell-infra-manager/dell-infra-manager.previous /opt/dell-infra-manager/dell-infra-manager && rc-service dell-infra-manager restart'
 ```
 
 ## Backup / restore
