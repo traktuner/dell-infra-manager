@@ -50,9 +50,13 @@ jobs:
           go-version: "1.26"
           cache-dependency-path: backend/go.mod
 
+      # `go mod tidy` walks the full transitive graph and writes a complete
+      # go.sum. `go mod download` alone is unreliable when the module cache is
+      # warm — it skips writing sum entries for already-cached deps, leaving
+      # the subsequent `go build` to fail with "missing go.sum entry".
       - name: Resolve module dependencies (creates go.sum if missing)
         working-directory: backend
-        run: go mod download
+        run: go mod tidy
 
       - name: Stage frontend build inside backend
         run: |
