@@ -51,10 +51,10 @@
 	}
 </script>
 
-<div class="flex items-center gap-3">
+<div class="flex flex-wrap items-center gap-3">
 	<button
 		onclick={toggleAll}
-		class="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200"
+		class="flex min-h-11 items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200"
 	>
 		{#if allSelected}
 			<CheckSquare class="w-4 h-4" />
@@ -69,7 +69,7 @@
 			<button
 				onclick={() => (showActions = !showActions)}
 				disabled={loading}
-				class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-300
+				class="flex min-h-11 items-center gap-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-zinc-300
 					hover:bg-zinc-700 text-sm disabled:opacity-50"
 			>
 				<Zap class="w-4 h-4" />
@@ -95,22 +95,22 @@
 
 {#if pendingAction}
 	{@const detail = actionDetails[pendingAction]}
-	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-4"
 		onclick={(e) => { if (e.target === e.currentTarget) pendingAction = null; }} onkeydown={(e) => { if (e.key === 'Escape') pendingAction = null; }}>
-		<div role="document" class="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg mx-4"
+		<div role="document" class="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
 		>
-			<div class="flex items-start gap-3 px-6 py-5 border-b border-zinc-800">
+			<div class="flex items-start gap-3 border-b border-zinc-800 px-4 py-5 sm:px-6">
 				<AlertTriangle class="w-5 h-5 {detail.force ? 'text-red-400' : 'text-amber-400'} shrink-0 mt-0.5" />
 				<div><h3 class="font-semibold text-zinc-100">{detail.label} on {selected.size} servers?</h3><p class="text-xs text-zinc-500 mt-1">One Redfish power command will be sent to each selected iDRAC.</p></div>
 			</div>
-			<div class="px-6 py-4 space-y-3 text-sm text-zinc-300">
+			<div class="space-y-3 px-4 py-4 text-sm text-zinc-300 sm:px-6">
 				<p>{detail.description}</p>
 				<p class="text-zinc-500">Targets: {servers.filter((s) => selected.has(s.id)).map((s) => s.name).join(', ')}</p>
 				{#if detail.force}<p class="text-red-300">This bypasses every operating-system shutdown safeguard.</p>{/if}
 			</div>
-			<div class="flex justify-end gap-2 px-6 py-3 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
-				<button onclick={() => (pendingAction = null)} class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cancel</button>
-				<button onclick={() => pendingAction && bulkAction(pendingAction)} class="px-4 py-2 text-sm rounded-lg text-white {detail.force ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'}">{detail.label}</button>
+			<div class="flex flex-col-reverse gap-2 rounded-b-xl border-t border-zinc-800 bg-zinc-950/40 px-4 py-3 sm:flex-row sm:justify-end sm:px-6">
+				<button onclick={() => (pendingAction = null)} class="min-h-11 w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 sm:w-auto">Cancel</button>
+				<button onclick={() => pendingAction && bulkAction(pendingAction)} class="min-h-11 w-full rounded-lg px-4 py-2 text-sm text-white sm:w-auto {detail.force ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'}">{detail.label}</button>
 			</div>
 		</div>
 	</div>

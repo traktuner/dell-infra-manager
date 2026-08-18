@@ -23,7 +23,7 @@
 	}
 </script>
 
-<div class="overflow-x-auto">
+<div class="hidden overflow-x-auto md:block">
 	<table class="w-full text-sm">
 		<thead>
 			<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs uppercase tracking-wide">
@@ -76,4 +76,32 @@
 			{/if}
 		</tbody>
 	</table>
+</div>
+
+<div class="divide-y divide-zinc-800 md:hidden">
+	{#each jobs as job}
+		<article class="py-4 first:pt-0 last:pb-0">
+			<div class="flex items-start justify-between gap-3">
+				<span class="break-all font-mono text-xs text-zinc-300">{job.type}</span>
+				<StatusBadge status={job.status} size="sm" />
+			</div>
+			{#if job.status === 'running'}
+				<div class="mt-3 h-1.5 w-full rounded-full bg-zinc-800"><div class="h-1.5 w-1/2 rounded-full bg-blue-500"></div></div>
+			{:else if job.status === 'done'}
+				<div class="mt-3 h-1.5 w-full rounded-full bg-emerald-500"></div>
+			{/if}
+			<dl class="mt-3 grid grid-cols-2 gap-3 text-xs">
+				<div><dt class="text-zinc-600">Created</dt><dd class="mt-1 text-zinc-400">{formatDate(job.created_at)}</dd></div>
+				<div><dt class="text-zinc-600">Finished</dt><dd class="mt-1 text-zinc-400">{formatDate(job.finished_at)}</dd></div>
+			</dl>
+			{#if job.status !== 'running'}
+				<button onclick={() => deleteJob(job.server_id, job.id)} class="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 text-sm text-red-400">
+					<Trash2 class="h-4 w-4" /> Delete job
+				</button>
+			{/if}
+		</article>
+	{/each}
+	{#if jobs.length === 0}
+		<div class="py-8 text-center text-sm text-zinc-600">No jobs</div>
+	{/if}
 </div>

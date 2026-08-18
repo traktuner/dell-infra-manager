@@ -51,7 +51,7 @@
 		<h1 class="text-xl font-semibold text-zinc-100">Dashboard</h1>
 		<button
 			onclick={load}
-			class="px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+			class="min-h-11 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-700"
 		>
 			Refresh
 		</button>

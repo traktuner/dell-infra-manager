@@ -316,8 +316,8 @@
 {:else}
 	<div class="space-y-6">
 		<!-- Header -->
-		<div class="flex items-start justify-between">
-			<div>
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
 				<h1 class="text-xl font-semibold text-zinc-100">{server.name}</h1>
 				<div class="text-sm text-zinc-500 mt-0.5">{server.hostname}:{server.port}</div>
 				{#if system}
@@ -327,7 +327,7 @@
 			<!-- Status badges with explicit labels so it's obvious which is which.
 			     Reachability is implied by Power/Health when system data is fresh — only
 			     show the offline pill if we explicitly can't reach the BMC. -->
-			<div class="flex items-center gap-3 text-xs">
+			<div class="flex flex-wrap items-center gap-3 text-xs">
 				{#if cache?.status === 'offline' || cache?.status === 'unknown'}
 					<span class="flex items-center gap-1.5">
 						<span class="text-zinc-600">BMC</span>
@@ -347,7 +347,7 @@
 			</div>
 		</div>
 
-		<div class="flex items-end gap-1 border-b border-zinc-800 overflow-x-auto">
+		<div class="-mx-4 flex items-end gap-1 overflow-x-auto border-b border-zinc-800 px-4 sm:-mx-5 sm:px-5 md:mx-0 md:px-0">
 			{#each tabs as t, i}
 				{@const prev = tabs[i - 1]}
 				{#if i > 0 && prev?.group !== t.group}
@@ -370,14 +370,14 @@
 		<!-- Tab content — one independent if-block per tab so a render fault
 		     in one can't break the chain for the others. -->
 		{#if tab === 'overview'}
-			<div class="grid grid-cols-3 gap-6">
-				<div class="col-span-2 space-y-4">
+			<div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+				<div class="space-y-4 xl:col-span-2">
 					{#if system}
 						<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
 							<h3 class="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
 								<Cpu class="w-4 h-4" /> System
 							</h3>
-							<div class="grid grid-cols-2 gap-3 text-sm">
+							<div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-3 text-sm">
 								<div class="text-zinc-500">Model</div><div class="text-zinc-200">{system.Model}</div>
 								<div class="text-zinc-500">Service Tag</div><div class="text-zinc-200 font-mono">{system.SerialNumber}</div>
 								<div class="text-zinc-500">BIOS</div><div class="text-zinc-200 font-mono">{system.BiosVersion}</div>
@@ -407,7 +407,7 @@
 							{/each}
 							<div class="mt-3 space-y-2">
 								{#each power.PowerSupplies as psu}
-									<div class="flex items-center justify-between text-xs text-zinc-500">
+									<div class="flex flex-col gap-2 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
 										<span>{psu.Name}</span>
 										<div class="flex items-center gap-3">
 											<span>{psu.LineInputVoltage}V input · {Math.round(psu.LastPowerOutputWatts)}W out</span>
@@ -424,7 +424,7 @@
 							<h3 class="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
 								<Thermometer class="w-4 h-4" /> Temperature Sensors
 							</h3>
-							<div class="grid grid-cols-2 gap-2">
+							<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
 								{#each thermal.Temperatures.filter(t => t.ReadingCelsius > 0) as sensor}
 									<div class="flex items-center justify-between text-sm bg-zinc-800/50 rounded-lg px-3 py-2">
 										<span class="text-zinc-400 text-xs">{sensor.Name}</span>
@@ -440,7 +440,7 @@
 							<h3 class="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
 								<Wind class="w-4 h-4" /> Fans
 							</h3>
-							<div class="grid grid-cols-2 gap-2">
+							<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
 								{#each thermal.Fans.filter(f => f.Status.State !== 'Absent') as fan}
 									<div class="flex items-center justify-between text-sm bg-zinc-800/50 rounded-lg px-3 py-2">
 										<span class="text-zinc-400 text-xs">{fan.Name}</span>
@@ -472,7 +472,7 @@
 			{:else}
 				<div class="space-y-4">
 					{#each storage as detail}
-						<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+						<div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
 							<div class="flex items-center gap-2 mb-4">
 								<Database class="w-4 h-4 text-zinc-400" />
 								<h3 class="font-medium text-zinc-200">{detail.Controller.Name}</h3>
@@ -483,7 +483,7 @@
 								<h4 class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Volumes (RAID)</h4>
 								<div class="space-y-2 mb-4">
 									{#each detail.Volumes as vol}
-										<div class="bg-zinc-800/50 rounded-lg px-4 py-3 flex items-center justify-between">
+										<div class="flex flex-col gap-2 rounded-lg bg-zinc-800/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
 											<div>
 												<div class="text-sm text-zinc-200">{vol.Name}</div>
 												<div class="text-xs text-zinc-500">{vol.RAIDType} · {vol.VolumeType}</div>
@@ -500,7 +500,7 @@
 							{#if detail.Drives?.length}
 								<h4 class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Physical Drives</h4>
 								<div class="overflow-x-auto">
-									<table class="w-full text-sm">
+									<table class="min-w-[680px] w-full text-sm">
 										<thead>
 											<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs">
 												<th class="pb-2 pr-4">Name</th>
@@ -548,7 +548,7 @@
 						onclick={checkFirmwareUpdates}
 						disabled={fwChecking}
 						title="Refresh Dell catalog and re-compare against installed firmware"
-						class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+						class="flex min-h-11 items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
 					>
 						<RefreshCw class="w-4 h-4 {fwChecking ? 'animate-spin' : ''}" />
 						{fwChecking ? 'Checking...' : 'Re-check Updates'}
@@ -564,7 +564,7 @@
 				{#if fwLoading}
 					<div class="text-zinc-500 text-sm">Loading firmware inventory...</div>
 				{:else}
-					<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+					<div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
 						<FirmwareTable serverId={id} components={fwComponents} updates={fwUpdates} checked={fwCompared} onupdate={loadFirmware} />
 					</div>
 				{/if}
@@ -591,8 +591,8 @@
 				{:else if biosLoading}
 					<div class="text-zinc-500 text-sm">Loading BIOS attributes...</div>
 				{:else}
-					<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-						<div class="flex items-center gap-3 mb-4">
+					<div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+						<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
 							<div class="relative flex-1 max-w-sm">
 								<Search class="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
 								<input
@@ -606,7 +606,7 @@
 						</div>
 
 						<div class="overflow-x-auto">
-							<table class="w-full text-sm">
+							<table class="min-w-[760px] w-full text-sm">
 								<thead>
 									<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs uppercase tracking-wide">
 										<th class="pb-3 pr-4">Attribute</th>
@@ -652,7 +652,7 @@
 		{/if}
 
 		{#if tab === 'virtualmedia'}
-			<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-xl">
+			<div class="max-w-xl rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6">
 				<VirtualMediaPanel serverId={id} />
 			</div>
 
@@ -676,8 +676,8 @@
 				{:else if logError}
 					<div class="text-red-400 text-sm">{logError}</div>
 				{:else}
-					<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-						<table class="w-full text-sm">
+					<div class="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900">
+						<table class="min-w-[720px] w-full text-sm">
 							<thead>
 								<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs uppercase tracking-wide">
 									<th class="px-5 py-3">Time</th>
@@ -710,7 +710,7 @@
 							<button
 								onclick={() => { logSkip = Math.max(0, logSkip - logTop); loadEventLog(); }}
 								disabled={logSkip === 0}
-								class="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:bg-zinc-700 disabled:opacity-30"
+								class="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-zinc-800 text-zinc-400 hover:bg-zinc-700 disabled:opacity-30"
 							>
 								<ChevronLeft class="w-4 h-4" />
 							</button>
@@ -720,7 +720,7 @@
 							<button
 								onclick={() => { logSkip = logSkip + logTop; loadEventLog(); }}
 								disabled={logSkip + logTop >= logTotal}
-								class="p-2 rounded-lg bg-zinc-800 text-zinc-400 hover:bg-zinc-700 disabled:opacity-30"
+								class="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-zinc-800 text-zinc-400 hover:bg-zinc-700 disabled:opacity-30"
 							>
 								<ChevronRight class="w-4 h-4" />
 							</button>
@@ -751,8 +751,8 @@
 					{:else if idracJobsError}
 						<div class="text-red-400 text-sm">{idracJobsError}</div>
 					{:else}
-						<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-							<table class="w-full text-sm">
+						<div class="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900">
+							<table class="min-w-[900px] w-full text-sm">
 								<thead>
 									<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs uppercase tracking-wide">
 										<th class="px-5 py-3">ID</th>
@@ -802,10 +802,7 @@
 
 		<!-- Console tab — fills remaining viewport height -->
 		{#if tab === 'console'}
-			<div
-				class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden"
-				style="height: calc(100vh - 220px); min-height: 480px;"
-			>
+			<div class="console-viewport overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
 				<ConsolePanel serverId={id} />
 			</div>
 		{/if}

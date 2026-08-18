@@ -127,7 +127,7 @@
 				onclick={() => handleClick(a)}
 				disabled={isDisabled(a)}
 				title={a.desc}
-				class="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 transition-colors
+				class="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors
 					text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100
 					disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
 			>
@@ -145,7 +145,7 @@
 				onclick={() => handleClick(a)}
 				disabled={isDisabled(a)}
 				title={a.desc}
-				class="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 transition-colors
+				class="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors
 					text-amber-300/90 hover:bg-amber-500/10 hover:text-amber-200
 					disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
 			>
@@ -165,7 +165,7 @@
 				onclick={() => handleClick(a)}
 				disabled={isDisabled(a)}
 				title={a.desc}
-				class="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2.5 transition-colors
+				class="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors
 					text-red-400 hover:bg-red-500/10 hover:text-red-300
 					disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
 			>
@@ -184,17 +184,17 @@
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-4"
 		onclick={(e) => { if (e.target === e.currentTarget) pendingAction = null; }}
 		onkeydown={(e) => { if (e.key === 'Escape') pendingAction = null; }}
 	>
 		<div
 			role="document"
 			tabindex="-1"
-			class="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-md mx-4"
+			class="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl"
 		>
 			<!-- Header with icon + short question -->
-			<div class="flex items-start gap-3 px-6 pt-5 pb-3 border-b border-zinc-800">
+			<div class="flex items-start gap-3 border-b border-zinc-800 px-4 pb-3 pt-5 sm:px-6">
 				<div class="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
 					<pendingActionDef.icon class="w-4 h-4 {sev.iconColor}" />
 				</div>
@@ -205,7 +205,7 @@
 			</div>
 
 			<!-- Body: explanation -->
-			<div class="px-6 py-4">
+			<div class="px-4 py-4 sm:px-6">
 				<p class="text-sm text-zinc-300 leading-relaxed">{pendingActionDef.desc}</p>
 
 				{#if pendingActionDef.severity !== 'safe'}
@@ -223,14 +223,14 @@
 			</div>
 
 			<!-- Footer: cancel / confirm -->
-			<div class="flex items-center justify-end gap-2 px-6 py-3 bg-zinc-950/50 border-t border-zinc-800 rounded-b-xl">
+			<div class="flex flex-col-reverse gap-2 rounded-b-xl border-t border-zinc-800 bg-zinc-950/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-end sm:px-6">
 				<button
 					onclick={() => (pendingAction = null)}
-					class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 transition-colors"
+					class="min-h-11 w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 sm:w-auto"
 				>Cancel</button>
 				<button
 					onclick={() => pendingAction && execute(pendingAction)}
-					class="px-4 py-2 text-sm rounded-lg text-white transition-colors {sev.btnClass}"
+					class="min-h-11 w-full rounded-lg px-4 py-2 text-sm text-white transition-colors sm:w-auto {sev.btnClass}"
 				>{pendingActionDef.label}</button>
 			</div>
 		</div>

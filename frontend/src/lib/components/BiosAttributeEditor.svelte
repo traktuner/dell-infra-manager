@@ -40,14 +40,14 @@
 	}
 </script>
 
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-	<div class="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-[480px] shadow-2xl">
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4">
+	<div class="max-h-[calc(100dvh-1.5rem)] w-full max-w-[480px] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl sm:p-6">
 		<div class="flex items-start justify-between mb-4">
 			<div>
 				<h3 class="font-semibold text-zinc-100">{entry.DisplayName}</h3>
 				<p class="text-xs text-zinc-500 mt-0.5">{entry.AttributeName}</p>
 			</div>
-			<button onclick={onclose} class="text-zinc-500 hover:text-zinc-300">
+			<button onclick={onclose} aria-label="Close" class="flex min-h-11 min-w-11 items-center justify-center text-zinc-500 hover:text-zinc-300">
 				<X class="w-5 h-5" />
 			</button>
 		</div>
@@ -105,17 +105,17 @@
 			<p class="text-sm text-red-400 mb-4">{error}</p>
 		{/if}
 
-		<div class="flex gap-3 justify-end">
+		<div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
 			<button
 				onclick={onclose}
-				class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+				class="min-h-11 w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 sm:w-auto"
 			>
 				Cancel
 			</button>
 			<button
 				onclick={save}
 				disabled={saving || entry.ReadOnly}
-				class="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white
+				class="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white sm:w-auto
 					hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<Save class="w-4 h-4" />

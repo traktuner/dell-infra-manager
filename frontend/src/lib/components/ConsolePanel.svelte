@@ -216,8 +216,8 @@
 <div class="flex flex-col h-full min-h-0 bg-zinc-950">
 
 	<!-- Status bar -->
-	<div class="flex items-center justify-between px-4 py-2 border-b border-zinc-800 shrink-0">
-		<div class="flex items-center gap-2 text-xs">
+	<div class="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 sm:px-4">
+		<div class="flex min-w-0 items-center gap-2 text-xs">
 			{#if connState === 'connecting'}
 				<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
 				<span class="text-zinc-400">{statusMsg || 'Verbinde…'}</span>
@@ -250,18 +250,18 @@
 			{#if mode === 'vnc' && connState === 'connected'}
 				<button
 					onclick={sendCtrlAltDel}
-					class="px-2 py-1 text-xs rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+					class="min-h-11 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200 sm:min-h-0"
 					title="Ctrl+Alt+Del an Server senden"
 				>Ctrl+Alt+Del</button>
 			{/if}
 			{#if mode === 'sol' && connState === 'connected'}
-				<span class="text-xs text-zinc-600">
+				<span class="hidden text-xs text-zinc-600 lg:inline">
 					Tipp: <kbd class="px-1 py-0.5 bg-zinc-800 rounded text-zinc-400">console com2</kbd> für Serial-over-LAN
 				</span>
 			{/if}
 			<button
 				onclick={connect}
-				class="px-2 py-1 text-xs rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+				class="min-h-11 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200 sm:min-h-0"
 			>Reconnect</button>
 		</div>
 	</div>

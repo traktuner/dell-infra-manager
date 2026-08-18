@@ -87,10 +87,11 @@
 
 </script>
 
-<a
-	href="/servers/{server.id}"
-	class="block bg-zinc-900 border border-zinc-800 rounded-xl p-5 hover:border-zinc-600 transition-colors group"
->
+<article class="group relative rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-colors hover:border-zinc-600 sm:p-5">
+	<a href="/servers/{server.id}" class="absolute inset-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Open {server.name}">
+		<span class="sr-only">Open {server.name}</span>
+	</a>
+	<div class="pointer-events-none relative">
 	<div class="flex items-start justify-between mb-3">
 		<div class="flex items-center gap-3 min-w-0">
 			<div class="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
@@ -159,7 +160,7 @@
 			onclick={refreshData}
 			disabled={refreshing}
 			title="Refresh card data (read-only — no power action)"
-			class="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800
+			class="pointer-events-auto relative z-10 flex min-h-11 min-w-11 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300
 				disabled:opacity-30 transition-colors"
 		>
 			<RefreshCw class="w-3.5 h-3.5 {refreshing ? 'animate-spin' : ''}" />
@@ -169,4 +170,5 @@
 	{#if cache?.status === 'offline' && lastSeen}
 		<div class="mt-2 text-xs text-zinc-600">Last seen {lastSeen}</div>
 	{/if}
-</a>
+	</div>
+</article>

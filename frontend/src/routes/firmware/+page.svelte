@@ -178,8 +178,8 @@
 </script>
 
 <div class="space-y-6">
-	<div class="flex items-center justify-between">
-		<div>
+	<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+		<div class="min-w-0">
 			<h1 class="text-xl font-semibold text-zinc-100">Firmware</h1>
 			{#if !loading && updates.size > 0}
 				<div class="text-sm text-zinc-500 mt-0.5">
@@ -207,21 +207,21 @@
 				</div>
 			{/if}
 		</div>
-		<div class="flex gap-2">
+		<div class="grid grid-cols-2 gap-2 sm:flex">
 			<button
 				onclick={collapseAll}
 				disabled={expanded.size === 0}
-				class="px-3 py-1.5 text-sm rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
+				class="min-h-11 rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
 			>Collapse all</button>
 			<button
 				onclick={expandAll}
 				disabled={serversWithUpdates.length === 0}
-				class="px-3 py-1.5 text-sm rounded-lg text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
+				class="min-h-11 rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
 			>Expand outdated</button>
 			<button
 				onclick={checkAllUpdates}
 				disabled={checking}
-				class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
+				class="col-span-2 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 sm:col-span-1"
 			>
 				<RefreshCw class="w-4 h-4 {checking ? 'animate-spin' : ''}" />
 				{checking ? 'Checking...' : 'Check All Updates'}
@@ -246,7 +246,7 @@
 						<button
 							onclick={() => (pendingBulk = { component: info.component, catalogPath: info.catalog_path, version: info.available_version, servers: info.servers })}
 						disabled={bulking}
-						class="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-blue-600/10 border border-blue-500/20
+						class="flex min-h-11 items-center gap-2 rounded-lg border border-blue-500/20 bg-blue-600/10 px-3 py-1.5 text-left text-xs
 							text-blue-300 hover:bg-blue-600/20 disabled:opacity-50"
 					>
 						<ArrowUpCircle class="w-3.5 h-3.5" />
@@ -275,12 +275,12 @@
 				{@const isOpen = expanded.has(server.id)}
 				{@const checked = updates.has(server.id)}
 
-				<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+				<div class="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
 					<button
 						onclick={() => toggle(server.id)}
-						class="w-full flex items-center justify-between px-5 py-3.5 hover:bg-zinc-800/50 transition-colors"
+						class="flex min-h-16 w-full flex-col items-stretch justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:px-5"
 					>
-						<div class="flex items-center gap-3">
+						<div class="flex min-w-0 items-center gap-3">
 							{#if isOpen}
 								<ChevronDown class="w-4 h-4 text-zinc-500" />
 							{:else}
@@ -292,7 +292,7 @@
 								<div class="text-xs text-zinc-600">{server.hostname} · {components.length} components</div>
 							</div>
 						</div>
-						<div class="flex items-center gap-3">
+						<div class="flex flex-wrap items-center gap-3 pl-10 sm:justify-end sm:pl-0">
 							{#if !checked}
 								<span class="text-xs text-zinc-600">Run "Check All Updates" to see status</span>
 								{:else if updateCount === 0 && unknownCount === 0}
@@ -312,7 +312,7 @@
 					</button>
 
 					{#if isOpen}
-						<div class="border-t border-zinc-800 px-5 py-4">
+						<div class="border-t border-zinc-800 px-4 py-4 sm:px-5">
 							{#if components.length === 0}
 								<div class="text-zinc-600 text-sm py-4 text-center">
 									No firmware inventory yet. The poller fetches firmware once per startup
@@ -336,22 +336,22 @@
 </div>
 
 {#if pendingBulk}
-	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-4"
 		onclick={(e) => { if (e.target === e.currentTarget) pendingBulk = null; }} onkeydown={(e) => { if (e.key === 'Escape') pendingBulk = null; }}>
-		<div role="document" class="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg mx-4"
+		<div role="document" class="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
 		>
-			<div class="px-6 py-5 border-b border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-5 sm:px-6">
 				<h3 class="font-semibold text-zinc-100">Stage firmware on {pendingBulk.servers.length} servers?</h3>
 				<p class="text-xs text-zinc-500 mt-1">{pendingBulk.component} → {pendingBulk.version}</p>
 			</div>
-			<div class="px-6 py-4 space-y-3 text-sm text-zinc-300">
+			<div class="space-y-3 px-4 py-4 text-sm text-zinc-300 sm:px-6">
 				<p>Targets: {pendingBulk.servers.map((s) => s.name).join(', ')}</p>
 				<p class="text-amber-300">Each package uses OnReset. This action does not restart, power off, or reboot any managed server.</p>
 				<p class="text-zinc-500">The appliance validates the current Dell match again for every server before it creates a job.</p>
 			</div>
-			<div class="flex justify-end gap-2 px-6 py-3 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
-				<button onclick={() => (pendingBulk = null)} class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cancel</button>
-				<button onclick={bulkUpdateComponent} class="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-500">Stage all with OnReset</button>
+			<div class="flex flex-col-reverse gap-2 rounded-b-xl border-t border-zinc-800 bg-zinc-950/40 px-4 py-3 sm:flex-row sm:justify-end sm:px-6">
+				<button onclick={() => (pendingBulk = null)} class="min-h-11 w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 sm:w-auto">Cancel</button>
+				<button onclick={bulkUpdateComponent} class="min-h-11 w-full rounded-lg bg-amber-600 px-4 py-2 text-sm text-white hover:bg-amber-500 sm:w-auto">Stage all with OnReset</button>
 			</div>
 		</div>
 	</div>

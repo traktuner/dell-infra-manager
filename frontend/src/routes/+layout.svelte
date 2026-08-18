@@ -12,9 +12,9 @@
 	});
 </script>
 
-<div class="flex min-h-screen bg-zinc-950">
+<div class="min-h-screen bg-zinc-950 md:flex">
 	<Sidebar />
-	<main class="flex-1 overflow-auto p-6">
+	<main class="min-w-0 flex-1 overflow-x-hidden px-4 pb-24 pt-20 sm:px-5 md:p-6">
 		{@render children()}
 	</main>
 </div>

@@ -35,6 +35,10 @@
 - **Do not return from a server poller after a permanent credential-decrypt error.** The watcher
   treats a returned poller as dead and restarts it every 10 seconds. Keep the poller dormant until
   its server row changes or the process stops. This applies to `backend/worker/pool.go`.
+- **Never nest a card action button inside the card's navigation link.** Browsers and assistive
+  technology handle nested interactive controls inconsistently, especially on touch devices. Use a
+  non-interactive card with a separate full-card link layer and keep action buttons above that layer.
+  This applies to `frontend/src/lib/components/ServerCard.svelte`.
 
 ## Working style here
 

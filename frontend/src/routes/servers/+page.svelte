@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Server } from '$lib/types';
 	import { api } from '$lib/api';
-	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { onMount } from 'svelte';
 	import { Plus, Trash2, Edit2, CheckCircle, XCircle, ExternalLink } from '@lucide/svelte';
 
@@ -94,14 +93,23 @@
 		form = { name: '', hostname: '', port: 443, username: 'root', password: '', tls_verify: false, tags: '[]' };
 		testResult = null;
 	}
+
+	function tagsFor(server: Server): string[] {
+		try {
+			const tags = JSON.parse(server.tags || '[]');
+			return Array.isArray(tags) ? tags : [];
+		} catch {
+			return [];
+		}
+	}
 </script>
 
 <div class="space-y-6">
-	<div class="flex items-center justify-between">
+	<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 		<h1 class="text-xl font-semibold text-zinc-100">Servers</h1>
 		<button
 			onclick={openCreate}
-			class="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-500"
+			class="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 sm:w-auto"
 		>
 			<Plus class="w-4 h-4" />
 			Add Server
@@ -110,9 +118,9 @@
 
 	<!-- Add/Edit Server form -->
 	{#if showForm}
-		<div class="bg-zinc-900 border border-zinc-700 rounded-xl p-6">
+		<div class="rounded-xl border border-zinc-700 bg-zinc-900 p-4 sm:p-6">
 			<h2 class="font-semibold text-zinc-200 mb-4">{editingId ? 'Edit Server' : 'Add Server'}</h2>
-			<div class="grid grid-cols-2 gap-4 mb-4">
+			<div class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<div>
 					<label for="srv-name" class="block text-sm text-zinc-400 mb-1">Display Name</label>
 					<input id="srv-name" bind:value={form.name} placeholder="dell-r640-01"
@@ -160,19 +168,19 @@
 				</div>
 			{/if}
 
-			<div class="flex items-center gap-3">
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
 				<button onclick={save} disabled={saving}
-					class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+					class="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50 sm:w-auto">
 					{saving ? 'Saving...' : editingId ? 'Update Server' : 'Save Server'}
 				</button>
 				{#if !editingId}
 					<button onclick={testConn} disabled={testing || !form.hostname || !form.password}
-						class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
+						class="min-h-11 w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 sm:w-auto">
 						{testing ? 'Testing...' : 'Test Connection'}
 					</button>
 				{/if}
 				<button onclick={() => { showForm = false; editingId = null; resetForm(); }}
-					class="px-4 py-2 text-sm rounded-lg text-zinc-500 hover:text-zinc-300">
+					class="min-h-11 w-full rounded-lg px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 sm:w-auto">
 					Cancel
 				</button>
 			</div>
@@ -180,7 +188,7 @@
 	{/if}
 
 	<!-- Server table -->
-	<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+	<div class="hidden overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 md:block">
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs uppercase tracking-wide">
@@ -201,7 +209,7 @@
 						</td>
 						<td class="px-5 py-3 text-zinc-400 font-mono text-xs">{s.hostname}:{s.port}</td>
 						<td class="px-5 py-3">
-							{#each JSON.parse(s.tags || '[]') as tag}
+							{#each tagsFor(s) as tag}
 								<span class="inline-block px-2 py-0.5 rounded text-xs bg-zinc-800 text-zinc-400 mr-1">{tag}</span>
 							{/each}
 						</td>
@@ -234,5 +242,41 @@
 				{/if}
 			</tbody>
 		</table>
+	</div>
+
+	<div class="space-y-3 md:hidden">
+		{#each servers as s}
+			<article class="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<a href="/servers/{s.id}" class="flex min-h-11 items-center gap-2 font-medium text-zinc-100">
+							<span class="truncate">{s.name}</span>
+							<ExternalLink class="h-3.5 w-3.5 shrink-0 text-zinc-600" />
+						</a>
+						<p class="break-all font-mono text-xs text-zinc-400">{s.hostname}:{s.port}</p>
+					</div>
+				</div>
+				{#if tagsFor(s).length > 0}
+					<div class="mt-3 flex flex-wrap gap-1.5">
+						{#each tagsFor(s) as tag}
+							<span class="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-400">{tag}</span>
+						{/each}
+					</div>
+				{/if}
+				<div class="mt-4 grid grid-cols-2 gap-2 border-t border-zinc-800 pt-3">
+					<button onclick={() => openEdit(s)} class="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-zinc-800 text-sm text-zinc-300">
+						<Edit2 class="h-4 w-4" /> Edit
+					</button>
+					<button onclick={() => deleteServer(s.id, s.name)} class="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-red-500/10 text-sm text-red-400">
+						<Trash2 class="h-4 w-4" /> Delete
+					</button>
+				</div>
+			</article>
+		{/each}
+		{#if !loading && servers.length === 0}
+			<div class="rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-10 text-center text-sm text-zinc-600">
+				No servers configured yet.
+			</div>
+		{/if}
 	</div>
 </div>

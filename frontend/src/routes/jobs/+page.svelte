@@ -47,18 +47,18 @@
 </script>
 
 <div class="space-y-6">
-	<div class="flex items-center justify-between">
+	<div class="flex items-center justify-between gap-3">
 		<h1 class="text-xl font-semibold text-zinc-100">Job Queue</h1>
 		<button
 			onclick={load}
-			class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+			class="flex min-h-11 items-center gap-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-700"
 		>
 			<RefreshCw class="w-4 h-4" />
 			Refresh
 		</button>
 	</div>
 
-	<div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+	<div class="hidden overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 md:block">
 		<table class="w-full text-sm">
 			<thead>
 				<tr class="border-b border-zinc-800 text-left text-zinc-500 text-xs uppercase tracking-wide">
@@ -127,5 +127,45 @@
 				{/if}
 			</tbody>
 		</table>
+	</div>
+
+	<div class="space-y-3 md:hidden">
+		{#each jobs as job}
+			{@const server = servers.get(job.server_id)}
+			{@const prog = progress.get(job.id)}
+			<article class="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						{#if server}
+							<a href="/servers/{server.id}" class="flex min-h-11 items-center font-medium text-zinc-200">{server.name}</a>
+						{:else}
+							<span class="font-mono text-xs text-zinc-600">{job.server_id.slice(0, 8)}</span>
+						{/if}
+						<p class="break-all font-mono text-xs text-zinc-500">{job.type}</p>
+					</div>
+					<StatusBadge status={job.status} size="sm" />
+				</div>
+				{#if job.status === 'running' && prog}
+					<div class="mt-4 space-y-1">
+						<div class="h-1.5 w-full rounded-full bg-zinc-800"><div class="h-1.5 rounded-full bg-blue-500 transition-all" style="width: {prog.percent}%"></div></div>
+						<div class="truncate text-xs text-zinc-600">{prog.message}</div>
+					</div>
+				{:else if job.status === 'done'}
+					<div class="mt-4 h-1.5 w-full rounded-full bg-emerald-500"></div>
+				{/if}
+				<dl class="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3 text-xs">
+					<div><dt class="text-zinc-600">Created</dt><dd class="mt-1 text-zinc-400">{formatDate(job.created_at)}</dd></div>
+					<div><dt class="text-zinc-600">Finished</dt><dd class="mt-1 text-zinc-400">{formatDate(job.finished_at)}</dd></div>
+				</dl>
+				{#if job.status !== 'running'}
+					<button onclick={() => deleteJob(job.server_id, job.id)} class="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-red-500/10 text-sm text-red-400">
+						<Trash2 class="h-4 w-4" /> Delete job
+					</button>
+				{/if}
+			</article>
+		{/each}
+		{#if !loading && jobs.length === 0}
+			<div class="rounded-xl border border-zinc-800 bg-zinc-900 px-5 py-10 text-center text-sm text-zinc-600">No jobs</div>
+		{/if}
 	</div>
 </div>

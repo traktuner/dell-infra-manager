@@ -5,6 +5,50 @@
 	--font-sans: ui-sans-serif, system-ui, sans-serif;
 }
 
+html {
+	background: #09090b;
+}
+
+body {
+	min-width: 320px;
+	overflow-x: hidden;
+}
+
+button,
+a {
+	touch-action: manipulation;
+}
+
+.mobile-topbar {
+	height: calc(3.5rem + env(safe-area-inset-top));
+	padding-top: env(safe-area-inset-top);
+}
+
+.mobile-bottom-nav {
+	min-height: calc(4rem + env(safe-area-inset-bottom));
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+.console-viewport {
+	height: calc(100dvh - 13rem);
+	min-height: 360px;
+}
+
+@media (min-width: 768px) {
+	.console-viewport {
+		height: calc(100vh - 220px);
+		min-height: 480px;
+	}
+}
+
+@media (max-width: 767px) {
+	input,
+	select,
+	textarea {
+		font-size: 16px;
+	}
+}
+
 /* Custom scrollbar for dark theme */
 ::-webkit-scrollbar {
 	width: 6px;

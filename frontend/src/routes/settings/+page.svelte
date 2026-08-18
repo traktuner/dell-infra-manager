@@ -185,14 +185,14 @@
 	}
 </script>
 
-<div class="space-y-6 max-w-3xl">
+<div class="max-w-3xl space-y-6">
 	<div>
 		<h1 class="text-xl font-semibold text-zinc-100">Settings</h1>
 		<div class="text-sm text-zinc-500 mt-0.5">Configure notifications and integrations.</div>
 	</div>
 
 	{#if banner}
-		<div class="flex items-center gap-2 px-4 py-3 rounded-xl text-sm
+		<div class="flex items-start gap-2 rounded-xl px-4 py-3 text-sm
 			{banner.kind === 'ok' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-red-500/10 text-red-300'}">
 			{#if banner.kind === 'ok'}
 				<CheckCircle2 class="w-4 h-4" />
@@ -207,7 +207,7 @@
 		<div class="text-zinc-500 text-sm">Loading settings…</div>
 	{:else}
 		<!-- Email Notifications -->
-		<section class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-5">
+		<section class="space-y-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6">
 			<header class="flex items-start justify-between">
 				<div class="flex items-center gap-2.5">
 					<Mail class="w-4 h-4 text-zinc-400" />
@@ -220,7 +220,7 @@
 				</label>
 			</header>
 
-			<div class="grid grid-cols-2 gap-4">
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 				<label class="block">
 					<span class="block text-xs text-zinc-500 mb-1">SMTP Host</span>
 					<input type="text" bind:value={smtpHost} placeholder="smtp.example.com"
@@ -286,23 +286,23 @@
 			<!-- Trigger toggles -->
 			<div>
 				<span class="text-xs text-zinc-500 block mb-2">Send email when:</span>
-				<div class="grid grid-cols-2 gap-2 text-sm text-zinc-300">
-					<label class="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
+				<div class="grid grid-cols-1 gap-2 text-sm text-zinc-300 sm:grid-cols-2">
+					<label class="flex min-h-11 items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
 						<input type="checkbox" bind:checked={onServerOffline}
 							class="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"/>
 						Server becomes offline
 					</label>
-					<label class="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
+					<label class="flex min-h-11 items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
 						<input type="checkbox" bind:checked={onHealthCritical}
 							class="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"/>
 						Hardware health is critical
 					</label>
-					<label class="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
+					<label class="flex min-h-11 items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
 						<input type="checkbox" bind:checked={onJobFailed}
 							class="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"/>
 						An iDRAC job fails
 					</label>
-					<label class="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
+					<label class="flex min-h-11 items-center gap-2 cursor-pointer p-2 hover:bg-zinc-800/50 rounded-lg">
 						<input type="checkbox" bind:checked={onFirmwareUpdates}
 							class="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"/>
 						Firmware updates available
@@ -325,23 +325,23 @@
 			</div>
 
 			<!-- Action buttons -->
-			<div class="flex items-center justify-end gap-3 pt-2 border-t border-zinc-800">
+			<div class="flex flex-col-reverse gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-end">
 				<button onclick={testEmail} disabled={testing || !smtpHost}
 					title="Send a test email using the current form values (does not save)"
-					class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
+					class="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 sm:w-auto">
 					<Send class="w-4 h-4" />
 					{testing ? 'Sending…' : 'Send test email'}
 				</button>
 				<button onclick={save} disabled={saving}
-					class="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+					class="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50 sm:w-auto">
 					<Save class="w-4 h-4" />
 					{saving ? 'Saving…' : 'Save settings'}
 				</button>
 			</div>
 		</section>
 
-		<section class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
-			<header class="flex items-start justify-between gap-4">
+		<section class="space-y-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6">
+			<header class="flex flex-col items-stretch gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div class="flex items-start gap-2.5">
 					<Download class="w-4 h-4 text-zinc-400 mt-0.5" />
 					<div>
@@ -350,7 +350,7 @@
 					</div>
 				</div>
 				<button onclick={refreshUpdateStatus} disabled={checkingUpdate || applyingUpdate}
-					class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
+					class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
 					<RefreshCw class="w-3.5 h-3.5 {checkingUpdate ? 'animate-spin' : ''}" />
 					Check
 				</button>
@@ -359,7 +359,7 @@
 			{#if checkingUpdate && !updateStatus}
 				<div class="text-sm text-zinc-500">Checking the latest GitHub release…</div>
 			{:else if updateStatus}
-				<div class="grid grid-cols-2 gap-3 text-sm">
+				<div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
 					<div class="bg-zinc-800/50 rounded-lg px-3 py-2"><div class="text-xs text-zinc-500">Installed</div><div class="font-mono text-zinc-200 mt-0.5">{updateStatus.current_version}</div></div>
 					<div class="bg-zinc-800/50 rounded-lg px-3 py-2"><div class="text-xs text-zinc-500">Latest release</div><div class="font-mono text-zinc-200 mt-0.5">{updateStatus.latest_version ?? 'Unavailable'}</div></div>
 				</div>
@@ -368,10 +368,10 @@
 				{#if !updateStatus.supported}
 					<div class="text-xs text-zinc-500">Web updates are available only in the OpenRC LXC appliance. Docker installations update through their image.</div>
 				{:else}
-					<div class="flex items-center justify-between gap-4 pt-2 border-t border-zinc-800">
+					<div class="flex flex-col items-stretch gap-4 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
 						<div class="flex items-center gap-2 text-xs text-emerald-400"><ShieldCheck class="w-4 h-4" /> Automatic health verification and rollback</div>
 						<button onclick={() => (showUpdateConfirm = true)} disabled={applyingUpdate || !updateStatus.latest_version || updateStatus.update_available === false || (updateStatus.active_firmware_jobs ?? 0) > 0}
-							class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+							class="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50 sm:w-auto">
 							{applyingUpdate ? 'Updating…' : updateStatus.update_available === false ? 'Up to date' : 'Install update'}
 						</button>
 					</div>
@@ -382,19 +382,19 @@
 </div>
 
 {#if showUpdateConfirm && updateStatus}
-	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-4"
 		onclick={(e) => { if (e.target === e.currentTarget) showUpdateConfirm = false; }} onkeydown={(e) => { if (e.key === 'Escape') showUpdateConfirm = false; }}>
-		<div role="document" class="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg mx-4"
+		<div role="document" class="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
 		>
-			<div class="px-6 py-5 border-b border-zinc-800"><h3 class="font-semibold text-zinc-100">Update this LXC appliance?</h3><p class="text-xs text-zinc-500 mt-1">{updateStatus.current_version} → {updateStatus.latest_version}</p></div>
-			<div class="px-6 py-4 space-y-3 text-sm text-zinc-300">
+			<div class="border-b border-zinc-800 px-4 py-5 sm:px-6"><h3 class="font-semibold text-zinc-100">Update this LXC appliance?</h3><p class="text-xs text-zinc-500 mt-1">{updateStatus.current_version} → {updateStatus.latest_version}</p></div>
+			<div class="space-y-3 px-4 py-4 text-sm text-zinc-300 sm:px-6">
 				<p>The appliance verifies the release checksum, saves the current binary, and restarts only its own OpenRC service.</p>
 				<p class="text-emerald-300">No managed server receives a power, reset, BIOS, or firmware command.</p>
 				<p class="text-zinc-500">The web UI is unavailable briefly. The updater restores the previous binary if the exact new hash does not become healthy within 30 seconds. Files under /data stay unchanged.</p>
 			</div>
-			<div class="flex justify-end gap-2 px-6 py-3 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
-				<button onclick={() => (showUpdateConfirm = false)} class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cancel</button>
-				<button onclick={applyApplianceUpdate} class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500">Update appliance</button>
+			<div class="flex flex-col-reverse gap-2 rounded-b-xl border-t border-zinc-800 bg-zinc-950/40 px-4 py-3 sm:flex-row sm:justify-end sm:px-6">
+				<button onclick={() => (showUpdateConfirm = false)} class="min-h-11 w-full rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 sm:w-auto">Cancel</button>
+				<button onclick={applyApplianceUpdate} class="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 sm:w-auto">Update appliance</button>
 			</div>
 		</div>
 	</div>

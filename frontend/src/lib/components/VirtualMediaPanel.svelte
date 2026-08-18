@@ -80,7 +80,7 @@
 				<button
 					onclick={eject}
 					disabled={working}
-					class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-red-600/20
+					class="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-red-600/20 px-3 py-1.5 text-sm sm:w-auto
 						text-red-400 hover:bg-red-600/30 disabled:opacity-50"
 				>
 					<LogOut class="w-4 h-4" />
@@ -98,7 +98,7 @@
 					<Link class="w-3.5 h-3.5 inline mr-1" />
 					ISO URL (HTTP, HTTPS, CIFS, NFS)
 				</label>
-				<div class="flex gap-2">
+				<div class="flex flex-col gap-2 sm:flex-row">
 					<input
 						id="iso-url"
 						type="url"
@@ -110,8 +110,8 @@
 					<button
 						onclick={insert}
 						disabled={working || !imageUrl.trim()}
-						class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500
-							disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+						class="min-h-11 w-full whitespace-nowrap rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 sm:w-auto
+							disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						{working ? 'Mounting...' : 'Mount ISO'}
 					</button>
