@@ -15,6 +15,11 @@
   `Model/Display` elements. Match `SoftwareId` to Dell `componentID`, parse those nested names, keep
   every unmatched row as `unknown`, and key UI rows by inventory ID. This bit
   `backend/redfish/firmware_compare.go` and `frontend/src/lib/components/FirmwareTable.svelte`.
+- **Never compare iDRAC firmware history as installed firmware.** Dell FirmwareInventory includes
+  `Previous-*` rollback entries and can expose the same running component as both `Current-*` and
+  `Installed-*`. Exclude history and collapse only equivalent current/installed records before
+  catalog comparison; otherwise an already-installed BIOS or iDRAC release appears as a warning.
+  This applies to `backend/redfish/firmware.go` and `backend/redfish/firmware_compare.go`.
 - **Never send `Immediate` for firmware or BIOS changes.** Dell documents that immediate firmware
   application can restart a server. The application permits only `OnReset`, and the backend must
   enforce this even if a client bypasses the dialogs. This applies to `backend/api/firmware.go`,

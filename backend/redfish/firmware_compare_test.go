@@ -69,3 +69,19 @@ func TestCompareInventorySelectsNewestCatalogDate(t *testing.T) {
 		t.Fatalf("unexpected comparison: %#v", got)
 	}
 }
+
+func TestCompareInventoryIgnoresFirmwareHistoryFromExistingCache(t *testing.T) {
+	catalog := []CatalogComponent{{
+		Name: "BIOS", Version: "2.27.0", ComponentIDs: []string{"159"},
+	}}
+	installed := []FirmwareComponent{
+		{ID: "Current-159-2.27.0__BIOS.Setup.1-1", Name: "BIOS", Version: "2.27.0", SoftwareId: "159", Updateable: true},
+		{ID: "Installed-159-2.27.0__BIOS.Setup.1-1", Name: "BIOS", Version: "2.27.0", SoftwareId: "159", Updateable: true},
+		{ID: "Previous-159-2.26.1__BIOS.Setup.1-1", Name: "BIOS", Version: "2.26.1", SoftwareId: "159", Updateable: true},
+	}
+
+	got := CompareInventory(installed, catalog, "")
+	if len(got) != 1 || got[0].InventoryID != "Installed-159-2.27.0__BIOS.Setup.1-1" || got[0].ComparisonStatus != "current" {
+		t.Fatalf("unexpected normalized comparison: %#v", got)
+	}
+}

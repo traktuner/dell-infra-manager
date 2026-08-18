@@ -62,7 +62,63 @@ func (c *Client) GetFirmwareInventory() ([]FirmwareComponent, error) {
 			result = append(result, comp)
 		}
 	}
-	return result, nil
+	return normalizeFirmwareInventory(result), nil
+}
+
+// normalizeFirmwareInventory removes iDRAC rollback history and collapses
+// equivalent Current/Installed records for the same physical component. Dell
+// exposes Previous-* entries through FirmwareInventory, but they are not the
+// running firmware and must never participate in update comparisons.
+//
+// A record is collapsed only when SoftwareId, name, version, and the iDRAC
+// target after "__" are identical. This preserves separate ports and exposes
+// inconsistent Current/Installed versions instead of hiding them.
+func normalizeFirmwareInventory(components []FirmwareComponent) []FirmwareComponent {
+	result := make([]FirmwareComponent, 0, len(components))
+	seen := make(map[string]int, len(components))
+
+	for _, comp := range components {
+		state, target := firmwareInventoryIdentity(comp.ID)
+		if state == "previous" {
+			continue
+		}
+
+		key := ""
+		if target != "" && (state == "current" || state == "installed") {
+			key = strings.Join([]string{
+				strings.TrimSpace(comp.SoftwareId),
+				strings.TrimSpace(comp.Name),
+				strings.TrimSpace(comp.Version),
+				target,
+			}, "\x00")
+		}
+		if index, ok := seen[key]; key != "" && ok {
+			// Installed is the canonical running record when iDRAC returns the
+			// same component as both Current and Installed.
+			if state == "installed" {
+				result[index] = comp
+			}
+			continue
+		}
+		if key != "" {
+			seen[key] = len(result)
+		}
+		result = append(result, comp)
+	}
+
+	return result
+}
+
+func firmwareInventoryIdentity(id string) (state, target string) {
+	state, _, ok := strings.Cut(strings.TrimSpace(id), "-")
+	if !ok {
+		return "", ""
+	}
+	_, target, ok = strings.Cut(id, "__")
+	if !ok || strings.TrimSpace(target) == "" {
+		target = ""
+	}
+	return strings.ToLower(state), strings.ToLower(strings.TrimSpace(target))
 }
 
 type UpdateParams struct {

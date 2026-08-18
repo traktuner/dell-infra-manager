@@ -34,6 +34,9 @@ type ComponentStatus struct {
 // Every installed component is included. A missing match stays explicit so a
 // caller cannot mistake "no comparison was possible" for "up to date".
 func CompareInventory(installed []FirmwareComponent, catalog []CatalogComponent, model string) []ComponentStatus {
+	// Normalize here as well as at collection time so caches created by older
+	// releases stop producing false warnings immediately after an upgrade.
+	installed = normalizeFirmwareInventory(installed)
 	catalogForModel := FilterByModel(catalog, model)
 
 	// componentID → newest catalog component for that ID.
