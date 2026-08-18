@@ -52,9 +52,12 @@ esac
 #   pinned:    /releases/download/<tag>/<asset>
 if [[ "$APP_VERSION" == "latest" ]]; then
   BINARY_URL=${BINARY_URL:-https://github.com/${REPO}/releases/latest/download/dell-infra-manager-linux-${BIN_ARCH}}
+  CHECKSUM_URL=${CHECKSUM_URL:-https://github.com/${REPO}/releases/latest/download/SHA256SUMS}
 else
   BINARY_URL=${BINARY_URL:-https://github.com/${REPO}/releases/download/${APP_VERSION}/dell-infra-manager-linux-${BIN_ARCH}}
+  CHECKSUM_URL=${CHECKSUM_URL:-https://github.com/${REPO}/releases/download/${APP_VERSION}/SHA256SUMS}
 fi
+BINARY_ASSET="dell-infra-manager-linux-${BIN_ARCH}"
 
 # ── Sanity ───────────────────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || { echo "✗ Run as root on the Proxmox host"; exit 1; }
@@ -173,8 +176,16 @@ pct exec "$CTID" -- sh -c "
   set -e
   apk add --no-cache ca-certificates tzdata wget >/dev/null
   mkdir -p /data /opt/dell-infra-manager
-  wget -qO /opt/dell-infra-manager/dell-infra-manager '${BINARY_URL}'
-  chmod +x /opt/dell-infra-manager/dell-infra-manager
+  wget -qO /opt/dell-infra-manager/dell-infra-manager.new '${BINARY_URL}'
+  EXPECTED=\$(wget -qO- '${CHECKSUM_URL}' | awk -v n='${BINARY_ASSET}' '\$2==n || \$2=="*"n {print \$1; exit}')
+  ACTUAL=\$(sha256sum /opt/dell-infra-manager/dell-infra-manager.new | awk '{print \$1}')
+  [ -n \"\$EXPECTED\" ] && [ \"\$ACTUAL\" = \"\$EXPECTED\" ] || {
+    echo 'Release checksum verification failed' >&2
+    rm -f /opt/dell-infra-manager/dell-infra-manager.new
+    exit 1
+  }
+  chmod +x /opt/dell-infra-manager/dell-infra-manager.new
+  mv /opt/dell-infra-manager/dell-infra-manager.new /opt/dell-infra-manager/dell-infra-manager
 "
 
 # ── OpenRC service ───────────────────────────────────────────────────────────
@@ -188,6 +199,7 @@ pidfile=\"/run/dell-infra-manager.pid\"
 output_log=\"/var/log/dell-infra-manager.log\"
 error_log=\"/var/log/dell-infra-manager.log\"
 directory=\"/data\"
+export UPDATE_REPO=\"${REPO}\"
 depend() {
   need net localmount
   after firewall
@@ -207,6 +219,7 @@ rc-service dell-infra-manager start >/dev/null
 # The URL points to /releases/latest so updates are always to the newest tag,
 # regardless of which version the user originally installed.
 LATEST_URL="https://github.com/${REPO}/releases/latest/download/dell-infra-manager-linux-${BIN_ARCH}"
+LATEST_CHECKSUM_URL="https://github.com/${REPO}/releases/latest/download/SHA256SUMS"
 pct exec "$CTID" -- sh -c "cat > /usr/local/bin/dell-infra-manager-update <<'UPDATE'
 #!/bin/sh
 # Update dell-infra-manager to the latest release. Atomic, with rollback.
@@ -214,12 +227,22 @@ pct exec "$CTID" -- sh -c "cat > /usr/local/bin/dell-infra-manager-update <<'UPD
 set -eu
 
 URL=\"\${BINARY_URL:-${LATEST_URL}}\"
+CHECKSUMS=\"\${CHECKSUM_URL:-${LATEST_CHECKSUM_URL}}\"
+ASSET='${BINARY_ASSET}'
 BIN=/opt/dell-infra-manager/dell-infra-manager
 NEW=/opt/dell-infra-manager/dell-infra-manager.new
 PREV=/opt/dell-infra-manager/dell-infra-manager.previous
 
 echo \"→ Fetching: \$URL\"
 wget -qO \"\$NEW\" \"\$URL\"
+
+EXPECTED=\$(wget -qO- \"\$CHECKSUMS\" | awk -v n=\"\$ASSET\" '\$2==n || \$2==\"*\"n {print \$1; exit}')
+ACTUAL=\$(sha256sum \"\$NEW\" | awk '{print \$1}')
+if [ -z \"\$EXPECTED\" ] || [ \"\$ACTUAL\" != \"\$EXPECTED\" ]; then
+  echo \"✗ Release checksum verification failed.\"
+  rm -f \"\$NEW\"
+  exit 1
+fi
 
 # Sanity-check the download — must be ELF and reasonably sized.
 SIZE=\$(stat -c %s \"\$NEW\" 2>/dev/null || echo 0)
@@ -252,17 +275,20 @@ chmod +x \"\$NEW\"
 mv \"\$NEW\" \"\$BIN\"
 rc-service dell-infra-manager restart >/dev/null
 
-# Health check — rollback if app doesn't come up within 15 s.
-for i in \$(seq 1 15); do
-  if wget -q --spider http://localhost:8080/api/v1/dashboard 2>/dev/null; then
+# Health check — verify the exact new binary and rollback on failure.
+for i in \$(seq 1 30); do
+  BODY=\$(wget -qO- \"http://localhost:8080/healthz?_=\$(date +%s)\" 2>/dev/null || true)
+  if echo \"\$BODY\" | grep -q \"\$EXPECTED\"; then
     echo \"✓ Update OK. Previous binary kept at \$PREV (delete when satisfied).\"
     exit 0
   fi
   sleep 1
 done
 
-echo \"✗ Service didn't come up after update — rolling back…\"
-mv \"\$PREV\" \"\$BIN\"
+echo \"✗ Service didn't verify the new binary — rolling back…\"
+cp \"\$PREV\" \"\$BIN.rollback\"
+chmod +x \"\$BIN.rollback\"
+mv \"\$BIN.rollback\" \"\$BIN\"
 rc-service dell-infra-manager restart >/dev/null
 echo \"  Rolled back. Run with --debug or check /var/log/dell-infra-manager.log.\"
 exit 1

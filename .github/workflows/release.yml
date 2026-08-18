@@ -41,27 +41,26 @@ jobs:
           npm run build
 
       # ── Backend → static binary with embedded SPA ─────────────────────────
-      # cache-dependency-path uses go.mod (not go.sum) so the action doesn't
-      # error when the lock file is missing on a fresh repo. We generate
-      # go.sum below via `go mod download`.
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version: "1.26"
-          cache-dependency-path: backend/go.mod
+          cache-dependency-path: backend/go.sum
 
-      # `go mod tidy` walks the full transitive graph and writes a complete
-      # go.sum. `go mod download` alone is unreliable when the module cache is
-      # warm — it skips writing sum entries for already-cached deps, leaving
-      # the subsequent `go build` to fail with "missing go.sum entry".
-      - name: Resolve module dependencies (creates go.sum if missing)
+      - name: Download and verify module dependencies
         working-directory: backend
-        run: go mod tidy
+        run: |
+          go mod download
+          go mod verify
 
       - name: Stage frontend build inside backend
         run: |
           mkdir -p backend/frontend/dist
           cp -r frontend/build/* backend/frontend/dist/
+
+      - name: Test backend
+        working-directory: backend
+        run: go test ./...
 
       - name: Build static binary
         working-directory: backend
@@ -70,7 +69,8 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -trimpath -ldflags="-s -w" \
+          go build -trimpath \
+            -ldflags="-s -w -X github.com/dell-infra-manager/backend/buildinfo.Version=${GITHUB_REF_NAME} -X github.com/dell-infra-manager/backend/buildinfo.Commit=${GITHUB_SHA}" \
             -o ../dell-infra-manager-linux-${{ matrix.goarch }} .
 
       - name: Upload artifact

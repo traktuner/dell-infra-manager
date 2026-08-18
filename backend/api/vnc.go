@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -172,7 +172,7 @@ func (h *VNCHandler) Proxy(c *gin.Context) {
 	if port == 0 {
 		port = defaultVNCPort
 	}
-	addr := fmt.Sprintf("%s:%d", s.Hostname, port)
+	addr := net.JoinHostPort(s.Hostname, strconv.Itoa(port))
 
 	tcpConn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {

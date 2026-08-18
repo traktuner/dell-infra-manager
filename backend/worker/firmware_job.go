@@ -7,8 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dell-infra-manager/backend/crypto"
@@ -17,9 +20,11 @@ import (
 )
 
 const dellDownloadBase = "https://downloads.dell.com/"
+const maxFirmwarePackageSize = int64(1024 * 1024 * 1024)
 
 // firmwareJobWorker continuously processes queued firmware update jobs.
 func (p *Pool) firmwareJobWorker(ctx context.Context) {
+	p.recoverInterruptedFirmwareJobs()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -27,30 +32,45 @@ func (p *Pool) firmwareJobWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.processPendingFirmwareJobs(ctx)
+			p.processNextFirmwareJob(ctx)
 		}
 	}
 }
 
-func (p *Pool) processPendingFirmwareJobs(ctx context.Context) {
-	var jobs []models.Job
-	p.db.Select(&jobs, `SELECT * FROM jobs WHERE type=? AND status=? LIMIT 5`,
-		string(models.JobTypeFirmwareUpdate), string(models.JobStatusQueued))
-
-	for _, job := range jobs {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		go p.executeFirmwareJob(ctx, job)
+func (p *Pool) recoverInterruptedFirmwareJobs() {
+	now := time.Now()
+	result, err := p.db.Exec(`UPDATE jobs SET status=?, result=?, finished_at=? WHERE type=? AND status=?`,
+		string(models.JobStatusFailed),
+		"appliance stopped while this firmware job was running; inspect the iDRAC job queue before retrying",
+		now, string(models.JobTypeFirmwareUpdate), string(models.JobStatusRunning))
+	if err != nil {
+		log.Printf("recover interrupted firmware jobs: %v", err)
+		return
 	}
+	if rows, _ := result.RowsAffected(); rows > 0 {
+		log.Printf("marked %d interrupted firmware job(s) as failed", rows)
+	}
+}
+
+func (p *Pool) processNextFirmwareJob(ctx context.Context) {
+	var job models.Job
+	if err := p.db.Get(&job, `SELECT * FROM jobs WHERE type=? AND status=? ORDER BY created_at LIMIT 1`,
+		string(models.JobTypeFirmwareUpdate), string(models.JobStatusQueued)); err != nil {
+		return
+	}
+	result, err := p.db.Exec(`UPDATE jobs SET status=?, started_at=? WHERE id=? AND status=?`,
+		string(models.JobStatusRunning), time.Now(), job.ID, string(models.JobStatusQueued))
+	if err != nil {
+		log.Printf("firmware job[%s] claim failed: %v", job.ID, err)
+		return
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return
+	}
+	p.executeFirmwareJob(ctx, job)
 }
 
 func (p *Pool) executeFirmwareJob(ctx context.Context, job models.Job) {
-	now := time.Now()
-	p.db.Exec(`UPDATE jobs SET status=?, started_at=? WHERE id=?`,
-		string(models.JobStatusRunning), now, job.ID)
 	p.hub.Emit("job_update", job.ServerID, map[string]interface{}{
 		"job_id": job.ID, "status": "running", "percent": 0,
 	})
@@ -71,18 +91,24 @@ func (p *Pool) executeFirmwareJob(ctx context.Context, job models.Job) {
 	p.hub.Emit("job_update", job.ServerID, map[string]interface{}{
 		"job_id": job.ID, "status": "running", "percent": 10, "message": "Downloading DUP...",
 	})
-	dupData, filename, err := downloadDUP(ctx, payload.CatalogPath)
+	firmwareDir := filepath.Dir(p.cfg.Database.Path)
+	dupFile, size, filename, err := downloadDUP(ctx, payload.CatalogPath, firmwareDir)
 	if err != nil {
 		p.failJob(job.ID, "download DUP: "+err.Error())
 		return
 	}
+	defer func() {
+		name := dupFile.Name()
+		_ = dupFile.Close()
+		_ = os.Remove(name)
+	}()
 
 	// Upload to iDRAC
 	p.hub.Emit("job_update", job.ServerID, map[string]interface{}{
 		"job_id": job.ID, "status": "running", "percent": 40, "message": "Uploading to iDRAC...",
 	})
 	applyTime := "OnReset"
-	location, err := client.UploadFirmware(filename, dupData, applyTime)
+	location, err := client.UploadFirmware(filename, dupFile, size, applyTime)
 	if err != nil {
 		p.failJob(job.ID, "upload firmware: "+err.Error())
 		return
@@ -100,27 +126,76 @@ func (p *Pool) failJob(jobID, reason string) {
 		string(models.JobStatusFailed), reason, now, jobID)
 }
 
-func downloadDUP(ctx context.Context, catalogPath string) ([]byte, string, error) {
-	url := dellDownloadBase + catalogPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func downloadDUP(ctx context.Context, catalogPath, tempDir string) (*os.File, int64, string, error) {
+	downloadURL, filename, err := validatedDellDownloadURL(catalogPath)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, "", err
+	}
+	client := &http.Client{Timeout: 20 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("download failed: %d", resp.StatusCode)
+		return nil, 0, "", fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxFirmwarePackageSize {
+		return nil, 0, "", fmt.Errorf("firmware package is too large: %d bytes", resp.ContentLength)
+	}
+	if err := os.MkdirAll(tempDir, 0o750); err != nil {
+		return nil, 0, "", err
+	}
+	f, err := os.CreateTemp(tempDir, ".firmware-*.dup")
 	if err != nil {
-		return nil, "", err
+		return nil, 0, "", err
 	}
-	// Extract filename from path
-	filename := path.Base(catalogPath)
-	return data, filename, nil
+	cleanup := func(e error) (*os.File, int64, string, error) {
+		name := f.Name()
+		_ = f.Close()
+		_ = os.Remove(name)
+		return nil, 0, "", e
+	}
+	written, err := io.Copy(f, io.LimitReader(resp.Body, maxFirmwarePackageSize+1))
+	if err != nil {
+		return cleanup(err)
+	}
+	if written > maxFirmwarePackageSize {
+		return cleanup(fmt.Errorf("firmware package exceeds %d bytes", maxFirmwarePackageSize))
+	}
+	if written == 0 {
+		return cleanup(fmt.Errorf("firmware package is empty"))
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return cleanup(err)
+	}
+	return f, written, filename, nil
+}
+
+func validatedDellDownloadURL(catalogPath string) (string, string, error) {
+	if strings.Contains(catalogPath, "\\") {
+		return "", "", fmt.Errorf("invalid catalog path")
+	}
+	rel, err := url.Parse(strings.TrimSpace(catalogPath))
+	if err != nil || rel.IsAbs() || rel.Host != "" || rel.RawQuery != "" || rel.Fragment != "" {
+		return "", "", fmt.Errorf("invalid catalog path")
+	}
+	for _, segment := range strings.Split(rel.Path, "/") {
+		if segment == "." || segment == ".." {
+			return "", "", fmt.Errorf("invalid catalog path")
+		}
+	}
+	cleanPath := path.Clean("/" + rel.Path)
+	if cleanPath == "/" {
+		return "", "", fmt.Errorf("invalid catalog path")
+	}
+	base, _ := url.Parse(dellDownloadBase)
+	rel.Path = strings.TrimPrefix(cleanPath, "/")
+	return base.ResolveReference(rel).String(), path.Base(cleanPath), nil
 }
 
 func (p *Pool) buildClientForServer(serverID string) (*redfish.Client, error) {
@@ -172,4 +247,3 @@ func (p *Pool) maybeDownloadCatalog() {
 	}
 	log.Println("catalog: download complete")
 }
-

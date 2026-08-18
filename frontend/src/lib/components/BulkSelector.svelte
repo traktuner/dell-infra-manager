@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Server, ResetType } from '$lib/types';
 	import { api } from '$lib/api';
-	import { CheckSquare, Square, Zap } from '@lucide/svelte';
+	import { CheckSquare, Square, Zap, AlertTriangle } from '@lucide/svelte';
 
 	type Props = { servers: Server[]; onaction?: () => void };
 	let { servers, onaction }: Props = $props();
@@ -9,6 +9,14 @@
 	let selected = $state<Set<string>>(new Set());
 	let loading = $state(false);
 	let showActions = $state(false);
+	let pendingAction = $state<ResetType | null>(null);
+
+	const actionDetails: Record<string, { label: string; description: string; force: boolean }> = {
+		GracefulShutdown: { label: 'Graceful Shutdown', description: 'Sends an ACPI shutdown request to every selected server. Each operating system should close applications and power off cleanly.', force: false },
+		GracefulRestart: { label: 'Graceful Restart', description: 'Sends an ACPI restart request to every selected server. Active services and sessions will be interrupted.', force: false },
+		ForceOff: { label: 'Force Off', description: 'Cuts power immediately on every selected server. Open files, transactions, and unwritten caches can be corrupted.', force: true },
+		ForceRestart: { label: 'Force Restart', description: 'Hard-resets every selected server without an operating-system shutdown. Data corruption is possible.', force: true }
+	};
 
 	const allSelected = $derived(selected.size === servers.length && servers.length > 0);
 
@@ -30,6 +38,7 @@
 	async function bulkAction(action: ResetType) {
 		if (selected.size === 0) return;
 		loading = true;
+		pendingAction = null;
 		showActions = false;
 		try {
 			await api.power.bulk([...selected], action);
@@ -71,7 +80,7 @@
 					rounded-xl shadow-2xl z-20 py-1">
 					{#each ['GracefulShutdown', 'GracefulRestart', 'ForceOff', 'ForceRestart'] as action}
 						<button
-							onclick={() => bulkAction(action as ResetType)}
+							onclick={() => { pendingAction = action as ResetType; showActions = false; }}
 							class="w-full text-left px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800
 								{action.startsWith('Force') ? 'text-red-400' : ''}"
 						>
@@ -83,6 +92,29 @@
 		</div>
 	{/if}
 </div>
+
+{#if pendingAction}
+	{@const detail = actionDetails[pendingAction]}
+	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+		onclick={(e) => { if (e.target === e.currentTarget) pendingAction = null; }} onkeydown={(e) => { if (e.key === 'Escape') pendingAction = null; }}>
+		<div role="document" class="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg mx-4"
+		>
+			<div class="flex items-start gap-3 px-6 py-5 border-b border-zinc-800">
+				<AlertTriangle class="w-5 h-5 {detail.force ? 'text-red-400' : 'text-amber-400'} shrink-0 mt-0.5" />
+				<div><h3 class="font-semibold text-zinc-100">{detail.label} on {selected.size} servers?</h3><p class="text-xs text-zinc-500 mt-1">One Redfish power command will be sent to each selected iDRAC.</p></div>
+			</div>
+			<div class="px-6 py-4 space-y-3 text-sm text-zinc-300">
+				<p>{detail.description}</p>
+				<p class="text-zinc-500">Targets: {servers.filter((s) => selected.has(s.id)).map((s) => s.name).join(', ')}</p>
+				{#if detail.force}<p class="text-red-300">This bypasses every operating-system shutdown safeguard.</p>{/if}
+			</div>
+			<div class="flex justify-end gap-2 px-6 py-3 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
+				<button onclick={() => (pendingAction = null)} class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cancel</button>
+				<button onclick={() => pendingAction && bulkAction(pendingAction)} class="px-4 py-2 text-sm rounded-lg text-white {detail.force ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'}">{detail.label}</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Export selected IDs for parent to use -->
 <div class="hidden" data-selected={JSON.stringify([...selected])}></div>

@@ -23,8 +23,11 @@ func Open(path string) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(1) // SQLite: single writer
-	db.SetMaxIdleConns(1)
+	// WAL still serializes writers, but it permits concurrent readers. A single
+	// connection made every dashboard/API read wait behind catalog and poller
+	// writes. Keep a small bounded pool for the 256 MB appliance.
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(4)
 
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -65,10 +68,21 @@ func migrate(db *sqlx.DB) error {
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(string(sql)); err != nil {
+		tx, err := db.Beginx()
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", name, err)
+		}
+		if _, err := tx.Exec(string(sql)); err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("migration %s: %w", name, err)
 		}
-		db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name)
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("record migration %s: %w", name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", name, err)
+		}
 		log.Printf("migration applied: %s", name)
 	}
 	return nil

@@ -23,16 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # go.sum must exist so the Dockerfile COPY succeeds and the module
-      # download layer is properly cached. Generate it if the repo doesn't
-      # have one committed (first-time setup).
-      - name: Ensure go.sum exists
-        run: |
-          if [ ! -f backend/go.sum ]; then
-            docker run --rm -v "$PWD/backend":/work -w /work golang:1.26-alpine \
-              go mod tidy
-          fi
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -68,6 +58,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            SOURCE_COMMIT=${{ github.sha }}
           # Registry cache: stored in GHCR alongside the image.
           # - Persistent (no 7-day expiry like GHA cache)
           # - No 10 GB size limit

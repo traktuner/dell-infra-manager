@@ -18,7 +18,13 @@ type Client struct {
 
 func NewClient(hostname string, port int, username, password string, tlsVerify bool) *Client {
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsVerify}, //nolint:gosec
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: !tlsVerify}, //nolint:gosec
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	return &Client{
 		baseURL:  fmt.Sprintf("https://%s:%d/redfish/v1", hostname, port),
@@ -57,6 +63,14 @@ func (c *Client) get(path string, out interface{}) error {
 }
 
 func (c *Client) post(path string, body io.Reader, contentType string) (*http.Response, error) {
+	return c.postWithLength(path, body, contentType, -1)
+}
+
+func (c *Client) postWithLength(path string, body io.Reader, contentType string, contentLength int64) (*http.Response, error) {
+	return c.postWithLengthAndTimeout(path, body, contentType, contentLength, c.httpClient.Timeout)
+}
+
+func (c *Client) postWithLengthAndTimeout(path string, body io.Reader, contentType string, contentLength int64, timeout time.Duration) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
@@ -66,7 +80,12 @@ func (c *Client) post(path string, body io.Reader, contentType string) (*http.Re
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	return c.httpClient.Do(req)
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
+	}
+	client := *c.httpClient
+	client.Timeout = timeout
+	return client.Do(req)
 }
 
 func (c *Client) patch(path string, body io.Reader) (*http.Response, error) {

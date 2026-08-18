@@ -83,16 +83,23 @@ export interface FirmwareComponent {
 	Name: string;
 	Version: string;
 	Updateable: boolean;
+	SoftwareId: string;
 	Status: { Health: string; State: string };
 }
 
 export interface AvailableUpdate {
 	component: string;
+	inventory_id: string;
+	software_id: string;
 	installed_version: string;
 	available_version: string;
 	release_date: string;
 	catalog_path: string;
+	updateable: boolean;
 	outdated: boolean;
+	matched: boolean;
+	comparison_status: 'current' | 'outdated' | 'newer' | 'unknown';
+	reason?: string;
 }
 
 export interface Job {

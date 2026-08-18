@@ -1,13 +1,14 @@
 package redfish
 
 import (
-	"bytes"
+	"bufio"
 	"compress/gzip"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,11 +21,12 @@ type CatalogComponent struct {
 	Version         string
 	Path            string
 	ReleaseDate     string
+	DateTime        string
 	ComponentType   string
 	SupportedModels []string
 	// ComponentIDs are Dell's stable per-device IDs from <SupportedDevices>.
 	// Match these against FirmwareComponent.SoftwareId from iDRAC inventory.
-	ComponentIDs    []string
+	ComponentIDs []string
 }
 
 type CatalogInfo struct {
@@ -42,6 +44,7 @@ type catalog struct {
 type catalogComponent struct {
 	Path          string `xml:"path,attr"`
 	ReleaseDate   string `xml:"releaseDate,attr"`
+	DateTime      string `xml:"dateTime,attr"`
 	VendorVersion string `xml:"vendorVersion,attr"`
 	ComponentType struct {
 		Value string `xml:"value,attr"`
@@ -50,10 +53,20 @@ type catalogComponent struct {
 		Lang  string `xml:"lang,attr"`
 		Value string `xml:",chardata"`
 	} `xml:"Display"`
+	Name struct {
+		Display []struct {
+			Lang  string `xml:"lang,attr"`
+			Value string `xml:",chardata"`
+		} `xml:"Display"`
+	} `xml:"Name"`
 	SupportedSystems struct {
 		Brand []struct {
 			Models []struct {
-				Name string `xml:",chardata"`
+				Name    string `xml:",chardata"`
+				Display []struct {
+					Lang  string `xml:"lang,attr"`
+					Value string `xml:",chardata"`
+				} `xml:"Display"`
 			} `xml:"Model"`
 		} `xml:"Brand"`
 	} `xml:"SupportedSystems"`
@@ -108,62 +121,104 @@ func downloadCatalog(catalogURL, cachePath string, conditional bool) (bool, erro
 		return false, fmt.Errorf("download catalog: HTTP %d", resp.StatusCode)
 	}
 
-	f, err := os.Create(cachePath)
+	dir := filepath.Dir(cachePath)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return false, fmt.Errorf("create catalog directory: %w", err)
+	}
+	f, err := os.CreateTemp(dir, ".catalog-*.tmp")
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
 	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
 		return false, err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return false, fmt.Errorf("sync catalog download: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return false, fmt.Errorf("close catalog download: %w", err)
+	}
+
+	// Validate the complete temporary file before replacing the last known-good
+	// catalog. Interrupted downloads and HTML error pages must never destroy the
+	// working cache used by every server comparison.
+	components, err := LoadCatalog(tmpPath)
+	if err != nil {
+		return false, fmt.Errorf("validate downloaded catalog: %w", err)
+	}
+	if len(components) == 0 {
+		return false, fmt.Errorf("validate downloaded catalog: no software components")
+	}
+	if err := os.Chmod(tmpPath, 0o640); err != nil {
+		return false, fmt.Errorf("set catalog permissions: %w", err)
+	}
+	if err := os.Rename(tmpPath, cachePath); err != nil {
+		return false, fmt.Errorf("replace catalog cache: %w", err)
 	}
 	return true, nil
 }
 
-// readCatalogBytes returns the catalog as a UTF-8 byte slice, decompressing
-// gzip and transcoding from UTF-16 if needed.
-//
-// Reality check on Dell's format (verified May 2026): they ship the catalog
-// gzipped, with the inner XML encoded as UTF-16 LE — not UTF-8 as we'd assumed.
-// The XML declaration even states it: <?xml version="1.0" encoding="utf-16"?>.
-// Go's encoding/xml only handles UTF-8, so we transcode here.
-func readCatalogBytes(cachePath string) ([]byte, error) {
+// openCatalogDecoder streams gzip decompression, UTF-16 conversion, and XML
+// parsing. The Dell catalog can expand to tens of megabytes, so the appliance
+// must not keep both the full XML and a second decoded object tree in memory.
+func openCatalogDecoder(cachePath string) (*xml.Decoder, func() error, error) {
 	f, err := os.Open(cachePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer f.Close()
-
-	var raw io.Reader = f
-	if gz, gzErr := gzip.NewReader(f); gzErr == nil {
-		defer gz.Close()
-		raw = gz
-	} else if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
-		return nil, seekErr
-	}
-
-	data, err := io.ReadAll(raw)
-	if err != nil {
-		return nil, err
-	}
-
-	// UTF-16 detection — handles both BOM-prefixed and BOM-less Dell catalogs.
-	// ExpectBOM means: consume a BOM if present, otherwise treat as the chosen
-	// endianness. Dell ships LE without a BOM in our observed cases.
-	if isUTF16(data) {
-		dec := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
-		out, _, err := transform.Bytes(dec, data)
+	fileReader := bufio.NewReader(f)
+	raw := io.Reader(fileReader)
+	var gz *gzip.Reader
+	header, _ := fileReader.Peek(2)
+	if len(header) == 2 && header[0] == 0x1f && header[1] == 0x8b {
+		gz, err = gzip.NewReader(fileReader)
 		if err != nil {
-			return nil, fmt.Errorf("transcode UTF-16 catalog: %w", err)
+			_ = f.Close()
+			return nil, nil, fmt.Errorf("open gzip catalog: %w", err)
 		}
-		data = out
+		raw = gz
+	}
+	closeCatalog := func() error {
+		if gz != nil {
+			_ = gz.Close()
+		}
+		return f.Close()
 	}
 
-	// Strip any bytes before the first '<' — handles UTF-8 BOM, stray
-	// whitespace, leftover surrogates, etc.
-	if idx := bytes.IndexByte(data, '<'); idx > 0 {
-		data = data[idx:]
+	bufferedRaw := bufio.NewReader(raw)
+	sample, _ := bufferedRaw.Peek(16)
+	decoded := io.Reader(bufferedRaw)
+	if isUTF16(sample) {
+		decoded = transform.NewReader(
+			bufferedRaw,
+			unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder(),
+		)
 	}
-	return data, nil
+
+	// Strip a BOM or other harmless prefix without buffering the document.
+	clean := bufio.NewReader(decoded)
+	for {
+		b, readErr := clean.ReadByte()
+		if readErr != nil {
+			_ = closeCatalog()
+			return nil, nil, fmt.Errorf("find catalog XML start: %w", readErr)
+		}
+		if b == '<' {
+			if err := clean.UnreadByte(); err != nil {
+				_ = closeCatalog()
+				return nil, nil, err
+			}
+			break
+		}
+	}
+
+	dec := xml.NewDecoder(clean)
+	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	return dec, closeCatalog, nil
 }
 
 // isUTF16 returns true if data looks like UTF-16 (BOM or null-byte pattern).
@@ -196,29 +251,16 @@ func isUTF16(data []byte) bool {
 	return zerosAtOdd*4 >= (n/2)*3
 }
 
-// newCatalogDecoder returns a UTF-8-clean xml.Decoder over the catalog file.
-// CharsetReader is identity because we already produced valid UTF-8 above —
-// the parser must NOT try to re-transcode based on the <?xml encoding=...?>
-// declaration (which is often a lie in Dell's catalog).
-func newCatalogDecoder(cachePath string) (*xml.Decoder, error) {
-	data, err := readCatalogBytes(cachePath)
-	if err != nil {
-		return nil, err
-	}
-	dec := xml.NewDecoder(bytes.NewReader(data))
-	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
-	return dec, nil
-}
-
 // ReadCatalogInfo returns root-level metadata (dateTime/version) without
 // parsing the multi-MB component list.
 func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 	stat, _ := os.Stat(cachePath)
 
-	dec, err := newCatalogDecoder(cachePath)
+	dec, closeCatalog, err := openCatalogDecoder(cachePath)
 	if err != nil {
 		return nil, err
 	}
+	defer closeCatalog()
 
 	for {
 		tok, err := dec.Token()
@@ -247,39 +289,53 @@ func ReadCatalogInfo(cachePath string) (*CatalogInfo, error) {
 
 // LoadCatalog parses the catalog and returns all components.
 func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
-	data, err := readCatalogBytes(cachePath)
+	dec, closeCatalog, err := openCatalogDecoder(cachePath)
 	if err != nil {
 		return nil, fmt.Errorf("open catalog: %w", err)
 	}
+	defer closeCatalog()
 
-	dec := xml.NewDecoder(bytes.NewReader(data))
-	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
-
-	var cat catalog
-	if err := dec.Decode(&cat); err != nil {
-		// Surface a sample of the bytes we tried to parse — without this,
-		// "expected element name after <" leaves the user guessing whether the
-		// file is HTML, gzip with the wrong header, half-downloaded, etc.
-		head := data
-		if len(head) > 120 {
-			head = head[:120]
+	result := make([]CatalogComponent, 0, 1024)
+	for {
+		token, tokenErr := dec.Token()
+		if tokenErr == io.EOF {
+			break
 		}
-		return nil, fmt.Errorf("parse catalog XML (%d bytes, head=%q): %w", len(data), head, err)
-	}
-
-	result := make([]CatalogComponent, 0, len(cat.Components))
-	for _, c := range cat.Components {
+		if tokenErr != nil {
+			return nil, fmt.Errorf("parse catalog XML after %d components: %w", len(result), tokenErr)
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "SoftwareComponent" {
+			continue
+		}
+		var c catalogComponent
+		if err := dec.DecodeElement(&c, &start); err != nil {
+			return nil, fmt.Errorf("parse catalog component %d: %w", len(result)+1, err)
+		}
 		name := ""
-		for _, d := range c.Display {
+		displays := c.Display
+		if len(c.Name.Display) > 0 {
+			displays = c.Name.Display
+		}
+		for _, d := range displays {
 			if d.Lang == "en" {
-				name = d.Value
+				name = strings.TrimSpace(d.Value)
 				break
 			}
 		}
 		var supportedModels []string
 		for _, b := range c.SupportedSystems.Brand {
 			for _, m := range b.Models {
-				supportedModels = append(supportedModels, m.Name)
+				modelName := strings.TrimSpace(m.Name)
+				for _, d := range m.Display {
+					if d.Lang == "en" {
+						modelName = strings.TrimSpace(d.Value)
+						break
+					}
+				}
+				if modelName != "" {
+					supportedModels = append(supportedModels, modelName)
+				}
 			}
 		}
 		var componentIDs []string
@@ -293,6 +349,7 @@ func LoadCatalog(cachePath string) ([]CatalogComponent, error) {
 			Version:         c.VendorVersion,
 			Path:            c.Path,
 			ReleaseDate:     c.ReleaseDate,
+			DateTime:        c.DateTime,
 			ComponentType:   c.ComponentType.Value,
 			SupportedModels: supportedModels,
 			ComponentIDs:    componentIDs,

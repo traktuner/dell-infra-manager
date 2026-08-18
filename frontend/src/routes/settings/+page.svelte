@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type NotificationSettings, type NotificationSettingsInput } from '$lib/api';
-	import { Mail, Send, Save, AlertCircle, CheckCircle2, RefreshCw } from '@lucide/svelte';
+	import { api, type NotificationSettings, type NotificationSettingsInput, type ApplianceUpdateStatus } from '$lib/api';
+	import { Mail, Send, Save, AlertCircle, CheckCircle2, RefreshCw, Download, ShieldCheck } from '@lucide/svelte';
 
 	// State for the form. Loaded from backend on mount; password is never
 	// returned, so the input is always blank — has_password just tells us
@@ -11,6 +11,10 @@
 	let testing = $state(false);
 	let triggering = $state(false);
 	let banner = $state<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+	let updateStatus = $state<ApplianceUpdateStatus | null>(null);
+	let checkingUpdate = $state(false);
+	let applyingUpdate = $state(false);
+	let showUpdateConfirm = $state(false);
 
 	let enabled            = $state(false);
 	let smtpHost           = $state('');
@@ -71,6 +75,7 @@
 	}
 
 	onMount(async () => {
+		void refreshUpdateStatus();
 		try {
 			const s = await api.settings.getNotifications();
 			applyServerData(s);
@@ -80,6 +85,54 @@
 			loaded = true;
 		}
 	});
+
+	async function refreshUpdateStatus() {
+		checkingUpdate = true;
+		try {
+			updateStatus = await api.appliance.updateStatus();
+		} catch (e) {
+			updateStatus = null;
+			banner = { kind: 'err', msg: `Update check failed: ${(e as Error).message}` };
+		} finally {
+			checkingUpdate = false;
+		}
+	}
+
+	async function applyApplianceUpdate() {
+		showUpdateConfirm = false;
+		applyingUpdate = true;
+		banner = null;
+		try {
+			const result = await api.appliance.applyUpdate();
+			if (!result.updated) {
+				banner = { kind: 'ok', msg: 'The appliance is already on the current release.' };
+				await refreshUpdateStatus();
+				return;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 2000));
+			let verified = false;
+			for (let attempt = 0; attempt < 40; attempt += 1) {
+				try {
+					const response = await fetch(`/healthz?_=${Date.now()}`, { cache: 'no-store' });
+					const health = response.ok ? await response.json() : null;
+					if (health?.binary_sha256 === result.binary_sha256) {
+						verified = true;
+						break;
+					}
+				} catch {
+					// The short connection failure is expected while OpenRC restarts this service.
+				}
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+			if (!verified) throw new Error('The updated service did not return with the expected binary. The appliance rollback should restore the previous release.');
+			banner = { kind: 'ok', msg: `Appliance updated to ${result.version}. Managed servers were not restarted.` };
+			await refreshUpdateStatus();
+		} catch (e) {
+			banner = { kind: 'err', msg: (e as Error).message };
+		} finally {
+			applyingUpdate = false;
+		}
+	}
 
 	async function save() {
 		saving = true;
@@ -286,5 +339,63 @@
 				</button>
 			</div>
 		</section>
+
+		<section class="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+			<header class="flex items-start justify-between gap-4">
+				<div class="flex items-start gap-2.5">
+					<Download class="w-4 h-4 text-zinc-400 mt-0.5" />
+					<div>
+						<h2 class="text-sm font-medium text-zinc-200">Appliance Update</h2>
+						<p class="text-xs text-zinc-500 mt-1">Checks GitHub release metadata and verifies the published SHA-256 file.</p>
+					</div>
+				</div>
+				<button onclick={refreshUpdateStatus} disabled={checkingUpdate || applyingUpdate}
+					class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
+					<RefreshCw class="w-3.5 h-3.5 {checkingUpdate ? 'animate-spin' : ''}" />
+					Check
+				</button>
+			</header>
+
+			{#if checkingUpdate && !updateStatus}
+				<div class="text-sm text-zinc-500">Checking the latest GitHub release…</div>
+			{:else if updateStatus}
+				<div class="grid grid-cols-2 gap-3 text-sm">
+					<div class="bg-zinc-800/50 rounded-lg px-3 py-2"><div class="text-xs text-zinc-500">Installed</div><div class="font-mono text-zinc-200 mt-0.5">{updateStatus.current_version}</div></div>
+					<div class="bg-zinc-800/50 rounded-lg px-3 py-2"><div class="text-xs text-zinc-500">Latest release</div><div class="font-mono text-zinc-200 mt-0.5">{updateStatus.latest_version ?? 'Unavailable'}</div></div>
+				</div>
+				{#if updateStatus.check_error}<div class="text-xs text-amber-400">{updateStatus.check_error}</div>{/if}
+				{#if (updateStatus.active_firmware_jobs ?? 0) > 0}<div class="text-xs text-amber-400">Finish or remove {updateStatus.active_firmware_jobs} queued or running firmware job{updateStatus.active_firmware_jobs === 1 ? '' : 's'} before updating the appliance.</div>{/if}
+				{#if !updateStatus.supported}
+					<div class="text-xs text-zinc-500">Web updates are available only in the OpenRC LXC appliance. Docker installations update through their image.</div>
+				{:else}
+					<div class="flex items-center justify-between gap-4 pt-2 border-t border-zinc-800">
+						<div class="flex items-center gap-2 text-xs text-emerald-400"><ShieldCheck class="w-4 h-4" /> Automatic health verification and rollback</div>
+						<button onclick={() => (showUpdateConfirm = true)} disabled={applyingUpdate || !updateStatus.latest_version || updateStatus.update_available === false || (updateStatus.active_firmware_jobs ?? 0) > 0}
+							class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+							{applyingUpdate ? 'Updating…' : updateStatus.update_available === false ? 'Up to date' : 'Install update'}
+						</button>
+					</div>
+				{/if}
+			{/if}
+		</section>
 	{/if}
 </div>
+
+{#if showUpdateConfirm && updateStatus}
+	<div role="dialog" aria-modal="true" tabindex="-1" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+		onclick={(e) => { if (e.target === e.currentTarget) showUpdateConfirm = false; }} onkeydown={(e) => { if (e.key === 'Escape') showUpdateConfirm = false; }}>
+		<div role="document" class="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-lg mx-4"
+		>
+			<div class="px-6 py-5 border-b border-zinc-800"><h3 class="font-semibold text-zinc-100">Update this LXC appliance?</h3><p class="text-xs text-zinc-500 mt-1">{updateStatus.current_version} → {updateStatus.latest_version}</p></div>
+			<div class="px-6 py-4 space-y-3 text-sm text-zinc-300">
+				<p>The appliance verifies the release checksum, saves the current binary, and restarts only its own OpenRC service.</p>
+				<p class="text-emerald-300">No managed server receives a power, reset, BIOS, or firmware command.</p>
+				<p class="text-zinc-500">The web UI is unavailable briefly. The updater restores the previous binary if the exact new hash does not become healthy within 30 seconds. Files under /data stay unchanged.</p>
+			</div>
+			<div class="flex justify-end gap-2 px-6 py-3 border-t border-zinc-800 bg-zinc-950/40 rounded-b-xl">
+				<button onclick={() => (showUpdateConfirm = false)} class="px-4 py-2 text-sm rounded-lg bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Cancel</button>
+				<button onclick={applyApplianceUpdate} class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500">Update appliance</button>
+			</div>
+		</div>
+	</div>
+{/if}

@@ -8,7 +8,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"strings"
 	"sync"
+	"time"
 )
 
 type FirmwareCollection struct {
@@ -64,20 +66,31 @@ func (c *Client) GetFirmwareInventory() ([]FirmwareComponent, error) {
 }
 
 type UpdateParams struct {
-	Targets                  []string `json:"Targets"`
-	RedfishOperationApplyTime string  `json:"@Redfish.OperationApplyTime"`
+	Targets                   []string `json:"Targets"`
+	RedfishOperationApplyTime string   `json:"@Redfish.OperationApplyTime"`
 }
 
-// UploadFirmware uploads a DUP file and returns the iDRAC job ID from the Location header.
-func (c *Client) UploadFirmware(filename string, fileData []byte, applyTime string) (string, error) {
+// UploadFirmware uploads a DUP file and returns the iDRAC job ID from the
+// Location header. It streams the package and still sends Content-Length,
+// which avoids holding a second full firmware image in a small LXC appliance.
+func (c *Client) UploadFirmware(filename string, fileData io.Reader, fileSize int64, applyTime string) (string, error) {
+	if applyTime == "" {
+		applyTime = "OnReset"
+	}
+	if applyTime != "OnReset" {
+		return "", fmt.Errorf("only OnReset firmware apply is allowed")
+	}
+	if fileSize < 0 {
+		return "", fmt.Errorf("firmware package size must not be negative")
+	}
 	params := UpdateParams{
-		Targets:                  []string{},
+		Targets:                   []string{},
 		RedfishOperationApplyTime: applyTime,
 	}
 	paramsJSON, _ := json.Marshal(params)
 
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
+	var prefix bytes.Buffer
+	writer := multipart.NewWriter(&prefix)
 
 	// UpdateParameters part
 	ph := make(textproto.MIMEHeader)
@@ -93,14 +106,18 @@ func (c *Client) UploadFirmware(filename string, fileData []byte, applyTime stri
 	fh := make(textproto.MIMEHeader)
 	fh.Set("Content-Disposition", fmt.Sprintf(`form-data; name="UpdateFile"; filename="%s"`, filename))
 	fh.Set("Content-Type", "application/octet-stream")
-	filePart, err := writer.CreatePart(fh)
+	_, err = writer.CreatePart(fh)
 	if err != nil {
 		return "", err
 	}
-	filePart.Write(fileData)
-	writer.Close()
+	contentType := writer.FormDataContentType()
+	suffix := "\r\n--" + writer.Boundary() + "--\r\n"
+	body := io.MultiReader(&prefix, fileData, strings.NewReader(suffix))
+	contentLength := int64(prefix.Len()) + fileSize + int64(len(suffix))
 
-	resp, err := c.post("/UpdateService/MultipartUpload", &body, writer.FormDataContentType())
+	resp, err := c.postWithLengthAndTimeout(
+		"/UpdateService/MultipartUpload", body, contentType, contentLength, 30*time.Minute,
+	)
 	if err != nil {
 		return "", err
 	}

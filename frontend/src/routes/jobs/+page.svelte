@@ -35,6 +35,7 @@
 	});
 
 	async function deleteJob(serverId: string, jobId: string) {
+		if (!confirm('Delete this job? If it has an iDRAC job reference, the appliance also asks iDRAC to remove it. This does not reboot the server.')) return;
 		await api.jobs.delete(serverId, jobId);
 		await load();
 	}

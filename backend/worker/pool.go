@@ -133,6 +133,9 @@ func (p *Pool) serverWorker(ctx context.Context, s models.Server) {
 	password, err := crypto.Decrypt(s.Password)
 	if err != nil {
 		log.Printf("poller[%s] decrypt error: %v", s.Name, err)
+		// A stored credential cannot repair itself. Stay dormant until the server
+		// row changes or the application stops, instead of restarting every scan.
+		<-ctx.Done()
 		return
 	}
 	client := redfish.NewClient(s.Hostname, s.Port, s.Username, password, s.TLSVerify)

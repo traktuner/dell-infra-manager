@@ -79,6 +79,7 @@ Available variables and their defaults:
 | `ONBOOT`           | `1` | start with Proxmox |
 | `UNPRIVILEGED`     | `1` | rootless container |
 | `BINARY_URL`       | latest GitHub Release for the host's CPU arch (`uname -m`) | override to pin a specific version |
+| `CHECKSUM_URL`     | matching release `SHA256SUMS` asset | verification source for a custom binary URL |
 | `APP_VERSION`      | `latest` | or e.g. `v0.1.0` for a pinned tag |
 
 ## Common operations
@@ -102,11 +103,11 @@ pct exec <CTID> -- dell-infra-manager-update
 What it does:
 
 1. Downloads the latest release binary for the host's CPU architecture.
-2. Sanity-checks it (must be ≥ 5 MB and start with the ELF magic number — protects
-   against accidentally installing a 404 HTML page).
+2. Verifies the matching SHA-256 value from the release `SHA256SUMS` asset, then
+   checks the ELF header and minimum size.
 3. Backs up the current binary to `…/dell-infra-manager.previous`.
 4. Atomic swap, restart the service.
-5. Health-checks the HTTP endpoint within 15 seconds.
+5. Verifies within 30 seconds that `/healthz` reports the exact new binary hash.
    **If the new version fails to come up, automatically rolls back to the previous binary.**
 
 `/data` is never touched — DB, master.key, catalog cache, all configured servers

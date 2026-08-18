@@ -90,17 +90,22 @@ export const api = {
 				'GET',
 				`/servers/${id}/firmware/available${refresh ? '?refresh=1' : ''}`
 			),
-		update: (id: string, component: string, catalogPath: string, version?: string) =>
+		update: (id: string, update: AvailableUpdate) =>
 			request<{ job_id: string }>('POST', `/servers/${id}/firmware/update`, {
-				component,
-				catalog_path: catalogPath,
-				version
+				component: update.component,
+				inventory_id: update.inventory_id,
+				software_id: update.software_id,
+				catalog_path: update.catalog_path,
+				version: update.available_version,
+				apply_time: 'OnReset'
 			}),
-		bulkUpdate: (serverIds: string[], component: string, catalogPath: string) =>
+		bulkUpdate: (serverIds: string[], component: string, catalogPath: string, version: string) =>
 			request<unknown[]>('POST', '/servers/bulk/firmware/update', {
 				server_ids: serverIds,
 				component,
-				catalog_path: catalogPath
+				catalog_path: catalogPath,
+				version,
+				apply_time: 'OnReset'
 			})
 	},
 	catalog: {
@@ -169,7 +174,25 @@ export const api = {
 		 *  tomorrow morning. Sends only if there are outdated components. */
 		sendDigestNow: () =>
 			request<{ ok: boolean }>('POST', '/settings/notifications/digest-now')
+	},
+	appliance: {
+		updateStatus: () => request<ApplianceUpdateStatus>('GET', '/appliance/update'),
+		applyUpdate: () => request<{ updated: boolean; version: string; binary_sha256?: string }>('POST', '/appliance/update')
 	}
+};
+
+export type ApplianceUpdateStatus = {
+	supported: boolean;
+	current_version: string;
+	current_commit: string;
+	current_sha256: string;
+	repository: string;
+	latest_version?: string;
+	release_url?: string;
+	update_available?: boolean;
+	checked_at?: string;
+	check_error?: string;
+	active_firmware_jobs?: number;
 };
 
 export type NotificationSettings = {

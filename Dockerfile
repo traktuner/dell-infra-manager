@@ -15,6 +15,9 @@ RUN npm run build
 FROM golang:1.26-alpine AS backend
 WORKDIR /app/backend
 
+ARG APP_VERSION=dev
+ARG SOURCE_COMMIT=unknown
+
 # Copy both manifests so this layer is only invalidated when dependencies change.
 COPY backend/go.mod backend/go.sum ./
 # --mount=type=cache keeps downloaded modules between builds.
@@ -30,7 +33,9 @@ COPY --from=frontend /app/frontend/build ./frontend/dist
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux \
-    go build -ldflags="-w -s" -o dell-infra-manager .
+    go build -trimpath \
+      -ldflags="-w -s -X github.com/dell-infra-manager/backend/buildinfo.Version=${APP_VERSION} -X github.com/dell-infra-manager/backend/buildinfo.Commit=${SOURCE_COMMIT}" \
+      -o dell-infra-manager .
 
 # ── Stage 3: Final image ──────────────────────────────────────────────────────
 FROM alpine:3.23
@@ -41,5 +46,5 @@ RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q --spider http://localhost:8080/api/v1/dashboard || exit 1
+    CMD wget -q --spider http://localhost:8080/healthz || exit 1
 ENTRYPOINT ["./dell-infra-manager"]

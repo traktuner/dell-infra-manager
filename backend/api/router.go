@@ -24,6 +24,11 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, n *notifier.Notifier, 
 	console := NewConsoleHandler(db)
 	vnc := NewVNCHandler(db)
 	settings := NewSettingsHandler(n)
+	appliance := NewApplianceHandler(db, cfg.Server.Port)
+
+	// The appliance health endpoint stays outside proxy authentication so the
+	// local OpenRC updater and container health checks can verify the new binary.
+	r.GET("/healthz", Health)
 
 	api := r.Group("/api/v1")
 	api.Use(AuthMiddleware(cfg.Auth))
@@ -72,8 +77,8 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, n *notifier.Notifier, 
 		api.POST("/catalog/refresh", fw.RefreshCatalog)
 
 		// Jobs
-		api.GET("/servers/:id/jobs", jobs.GetServerJobs)         // local jobs we queued
-		api.GET("/servers/:id/jobs/idrac", jobs.GetIDRACJobs)    // live iDRAC job queue
+		api.GET("/servers/:id/jobs", jobs.GetServerJobs)      // local jobs we queued
+		api.GET("/servers/:id/jobs/idrac", jobs.GetIDRACJobs) // live iDRAC job queue
 		api.DELETE("/servers/:id/jobs/:jid", jobs.DeleteJob)
 		api.DELETE("/servers/:id/jobs", jobs.ClearAllJobs)
 
@@ -82,16 +87,21 @@ func NewRouter(db *sqlx.DB, hub *Hub, cfg *config.Config, n *notifier.Notifier, 
 
 		// Console: VNC/KVM via noVNC. /enable is idempotent — call it on every
 		// open; it reads iDRAC state and only PATCHes when (re)configuration is needed.
-		api.POST("/servers/:id/vnc/enable",   vnc.Enable)
-		api.GET("/servers/:id/vnc/proxy",    vnc.Proxy)    // WebSocket TCP-tunnel
+		api.POST("/servers/:id/vnc/enable", vnc.Enable)
+		api.GET("/servers/:id/vnc/proxy", vnc.Proxy)       // WebSocket TCP-tunnel
 		api.GET("/servers/:id/vnc/password", vnc.Password) // RFB auth password
-		api.POST("/servers/:id/vnc/reset",    vnc.Reset)   // force re-configure on next /enable
+		api.POST("/servers/:id/vnc/reset", vnc.Reset)      // force re-configure on next /enable
 
 		// Settings (SMTP / notifications)
-		api.GET("/settings/notifications",            settings.GetNotifications)
-		api.PUT("/settings/notifications",            settings.UpdateNotifications)
-		api.POST("/settings/notifications/test",      settings.TestNotifications)
+		api.GET("/settings/notifications", settings.GetNotifications)
+		api.PUT("/settings/notifications", settings.UpdateNotifications)
+		api.POST("/settings/notifications/test", settings.TestNotifications)
 		api.POST("/settings/notifications/digest-now", settings.SendDigestNow)
+
+		// Appliance self-update. GET is read-only. POST updates only this LXC
+		// service after an explicit UI confirmation; it never calls an iDRAC.
+		api.GET("/appliance/update", appliance.GetUpdateStatus)
+		api.POST("/appliance/update", appliance.ApplyUpdate)
 
 		// Global views
 		api.GET("/jobs", jobs.GetAllJobs)
@@ -131,18 +141,19 @@ func getDashboard(db *sqlx.DB) gin.HandlerFunc {
 		// Join through servers so an orphaned cache row (left over from a
 		// deleted server before fk enforcement was on) can't inflate the
 		// online/offline counters past the total.
-		var total, online, offline int
-		db.QueryRow(`SELECT COUNT(*) FROM servers`).Scan(&total)
-		db.QueryRow(`
-			SELECT COUNT(*) FROM servers s
-			JOIN server_cache c ON c.server_id = s.id
-			WHERE c.status = 'online'`).Scan(&online)
-		db.QueryRow(`
-			SELECT COUNT(*) FROM servers s
-			JOIN server_cache c ON c.server_id = s.id
-			WHERE c.status = 'offline'`).Scan(&offline)
-		var activeJobs int
-		db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')`).Scan(&activeJobs)
+		var total, online, offline, activeJobs int
+		err := db.QueryRow(`
+			SELECT
+				COUNT(*),
+				COALESCE(SUM(CASE WHEN c.status = 'online' THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN c.status = 'offline' THEN 1 ELSE 0 END), 0),
+				(SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running'))
+			FROM servers s
+			LEFT JOIN server_cache c ON c.server_id = s.id`).Scan(&total, &online, &offline, &activeJobs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "dashboard query failed"})
+			return
+		}
 
 		errCount := total - online - offline
 		if errCount < 0 {
@@ -151,7 +162,7 @@ func getDashboard(db *sqlx.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"total_servers": total,
 			"online":        online,
-			"offline":        offline,
+			"offline":       offline,
 			"error":         errCount,
 			"active_jobs":   activeJobs,
 		})

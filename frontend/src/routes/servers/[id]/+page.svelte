@@ -31,7 +31,7 @@
 		AlertCircle, Settings, Disc, ListChecks, SquareTerminal
 	} from '@lucide/svelte';
 
-	const id = $derived(page.params.id);
+	const id = $derived(page.params.id ?? '');
 
 	type TabKey = 'overview' | 'storage' | 'eventlog' | 'firmware' | 'bios' | 'virtualmedia' | 'jobs' | 'console';
 
@@ -57,6 +57,7 @@
 
 	let fwComponents = $state<FirmwareComponent[]>([]);
 	let fwUpdates = $state<AvailableUpdate[]>([]);
+	let fwCompared = $state(false);
 	let fwLoading = $state(false);
 	let fwError = $state('');
 	let fwChecking = $state(false);
@@ -130,16 +131,16 @@
 		fwLoading = true;
 		fwError = '';
 		try {
-			// Load inventory + available updates in parallel so the user sees
-			// outdated components immediately, without a separate "Check Updates" click.
-			const [comps, upds] = await Promise.all([
-				api.cache.firmware(id),
-				api.firmware.available(id).catch(() => [])
-			]);
-			// Backend may return null for empty Go slices — coerce to [].
-			fwComponents = comps ?? [];
-			fwUpdates = upds ?? [];
+			fwComponents = (await api.cache.firmware(id)) ?? [];
 			fwLoaded = true;
+			try {
+				fwUpdates = (await api.firmware.available(id)) ?? [];
+				fwCompared = true;
+			} catch (e) {
+				fwUpdates = [];
+				fwCompared = false;
+				fwError = `Firmware comparison failed: ${(e as Error).message}`;
+			}
 		} catch (e) {
 			fwError = (e as Error).message;
 		} finally {
@@ -152,7 +153,11 @@
 		fwError = '';
 		try {
 			fwUpdates = (await api.firmware.available(id, true)) ?? [];
+			fwComponents = (await api.cache.firmware(id)) ?? [];
+			fwCompared = true;
 		} catch (e) {
+			fwUpdates = [];
+			fwCompared = false;
 			fwError = (e as Error).message;
 		} finally {
 			fwChecking = false;
@@ -560,7 +565,7 @@
 					<div class="text-zinc-500 text-sm">Loading firmware inventory...</div>
 				{:else}
 					<div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-						<FirmwareTable serverId={id} components={fwComponents} updates={fwUpdates} onupdate={loadFirmware} />
+						<FirmwareTable serverId={id} components={fwComponents} updates={fwUpdates} checked={fwCompared} onupdate={loadFirmware} />
 					</div>
 				{/if}
 			</div>

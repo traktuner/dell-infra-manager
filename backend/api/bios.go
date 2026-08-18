@@ -79,6 +79,10 @@ func (h *BiosHandler) SetBiosSettings(c *gin.Context) {
 	if req.ApplyTime == "" {
 		req.ApplyTime = "OnReset"
 	}
+	if req.ApplyTime != "OnReset" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only OnReset is allowed; this application never requests an immediate BIOS apply"})
+		return
+	}
 
 	client, err := buildClient(h.db, id)
 	if err != nil {
@@ -115,4 +119,3 @@ func (h *BiosHandler) GetPending(c *gin.Context) {
 		ORDER BY created_at DESC`, id, string(models.JobTypeBiosConfig))
 	c.JSON(http.StatusOK, jobs)
 }
-

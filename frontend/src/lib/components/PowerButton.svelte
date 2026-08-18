@@ -185,15 +185,13 @@
 		aria-modal="true"
 		tabindex="-1"
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-		onclick={() => (pendingAction = null)}
+		onclick={(e) => { if (e.target === e.currentTarget) pendingAction = null; }}
 		onkeydown={(e) => { if (e.key === 'Escape') pendingAction = null; }}
 	>
 		<div
 			role="document"
 			tabindex="-1"
 			class="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-md mx-4"
-			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => e.stopPropagation()}
 		>
 			<!-- Header with icon + short question -->
 			<div class="flex items-start gap-3 px-6 pt-5 pb-3 border-b border-zinc-800">
@@ -232,7 +230,6 @@
 				>Cancel</button>
 				<button
 					onclick={() => pendingAction && execute(pendingAction)}
-					autofocus={pendingActionDef.severity === 'safe'}
 					class="px-4 py-2 text-sm rounded-lg text-white transition-colors {sev.btnClass}"
 				>{pendingActionDef.label}</button>
 			</div>
