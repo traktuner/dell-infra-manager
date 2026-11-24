@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: Backend ─────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS backend
+FROM golang:1.27-alpine AS backend
 WORKDIR /app/backend
 
 ARG APP_VERSION=dev
@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
       -o dell-infra-manager .
 
 # ── Stage 3: Final image ──────────────────────────────────────────────────────
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=backend /app/backend/dell-infra-manager ./
